@@ -1,0 +1,46 @@
+# Add this to your App.js - Replace the handleUpgradeTier function
+
+const handleUpgradeTier = async (newTier) => {
+  console.log('⬆️ Initiating upgrade to tier:', newTier);
+  
+  const paidTiers = ['Personal Basic', 'Personal Pro', 'Group Basic', 'Group Pro'];
+  const isNewTierPaid = paidTiers.includes(newTier);
+  const isCurrentTierPaid = paidTiers.includes(subscriptionTier);
+  
+  // CHECK: If user is trying to downgrade from a paid plan
+  if (isCurrentTierPaid && !isNewTierPaid) {
+    // Check if subscription is still active
+    const subscriptionStatus = await ToyyibPayService.checkSubscriptionStatus(teamId);
+    
+    if (subscriptionStatus && subscriptionStatus.isActive) {
+      Alert.alert(
+        'Cannot Downgrade',
+        `You have an active ${subscriptionTier} subscription until ${new Date(subscriptionStatus.expiresAt).toLocaleDateString()}. 
+        
+You can downgrade after your subscription expires.
+
+Current Plan: ${subscriptionTier}
+Expires On: ${new Date(subscriptionStatus.expiresAt).toLocaleDateString()}`,
+        [
+          { text: 'OK' }
+        ]
+      );
+      return;
+    }
+  }
+  
+  // If trying to upgrade to paid tier
+  if (isNewTierPaid) {
+    if (subscriptionTier === newTier) {
+      Alert.alert('Already Subscribed', `You are already on the ${newTier} plan.`);
+      return;
+    }
+    
+    // If currently on free tier or upgrading to higher tier
+    setPendingTierUpgrade(newTier);
+    setShowPaymentModal(true);
+  } else {
+    // Free tier - only allow if not currently on paid active subscription
+    await performTierUpgrade(newTier);
+  }
+};

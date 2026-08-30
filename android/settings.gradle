@@ -37,7 +37,3 @@ expoAutolinking.useExpoVersionCatalog()
 
 include ':app'
 includeBuild(expoAutolinking.reactNativeGradlePlugin)
-
-gradle.beforeProject { project ->
-    project.ext.set("minSdkVersion", 24)
-}
