@@ -95,11 +95,13 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0.0"
+        // Line 84-86 (Corrected)
         externalNativeBuild {
-            cmake {
-                arguments "-DANDROID_STL=c++_shared",
-            }
-        }
+        cmake {
+        arguments "-DANDROID_STL=c++_shared"
+              }
+       }
+
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
