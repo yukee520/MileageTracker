@@ -47,7 +47,7 @@ jobs:
           chmod +x gradlew
           ./gradlew clean --no-build-cache
           ./gradlew assembleRelease \
-            -Dorg.gradle.cxx.experimental.symlink=false \
+            -Pandroid.ndkPath=/usr/local/lib/android/sdk/ndk/25.2.9519653 \
             --no-build-cache
 
       - name: Upload APK Artifact
