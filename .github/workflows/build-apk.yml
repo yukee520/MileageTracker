@@ -22,25 +22,17 @@ jobs:
           distribution: 'temurin'
           cache: 'gradle'
 
-      - name: Clean workspace & purge C++ caches
+      - name: Clean workspace & purge build caches
         run: |
-          rm -rf node_modules
+          rm -rf node_modules dist
           find . -type d \( -name ".cxx" -o -name "build" -o -name ".gradle" \) -exec rm -rf {} + 2>/dev/null || true
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
-      - name: Export Expo Bundle
-        run: npx expo export --platform android
-
-      - name: Copy bundle to assets
-        run: |
-          mkdir -p android/app/src/main/assets
-          cp dist/_expo/static/js/android/*.js android/app/src/main/assets/index.android.bundle
-          cp -r dist/assets/* android/app/src/main/res/ 2>/dev/null || true
-
       - name: Build APK with Gradle
         env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
           ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/25.2.9519653
         run: |
           cd android
