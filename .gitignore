@@ -41,3 +41,10 @@ yarn-error.*
 #/android
 
 **/.cxx/
+
+# Native build outputs
+.cxx/
+android/.cxx/
+android/app/build/
+android/build/
+node_modules/
