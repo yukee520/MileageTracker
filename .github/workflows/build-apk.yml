@@ -34,6 +34,10 @@ jobs:
           cp dist/_expo/static/js/android/*.js android/app/src/main/assets/index.android.bundle
           cp -r dist/assets/* android/app/src/main/res/ 2>/dev/null || true
 
+      - name: Clean native C++ caches
+        run: |
+          find . -type d -name ".cxx" -exec rm -rf {} + 2>/dev/null || true
+
       - name: Build APK with Gradle
         run: |
           cd android
@@ -45,3 +49,4 @@ jobs:
         with:
           name: MileageTracker-APK
           path: android/app/build/outputs/apk/release/*.apk
+
