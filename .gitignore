@@ -49,3 +49,11 @@ android/app/build/
 android/build/
 node_modules/
 node_modules/
+
+# Comprehensive Native Build Ignores
+.cxx/
+android/.cxx/
+android/app/.cxx/
+android/app/build/
+android/build/
+node_modules/
