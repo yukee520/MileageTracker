@@ -1,0 +1,3 @@
+sdk.dir=/data/data/com.termux/files/home/android-sdk
+ndk.dir=/data/data/com.termux/files/usr/lib/android-ndk
+ndk.dir=/data/data/com.termux/files/usr/lib/android-ndk
