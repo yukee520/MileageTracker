@@ -26,6 +26,11 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
+      - name: Purge native C++ caches
+        run: |
+          find . -type d -name ".cxx" -exec rm -rf {} + 2>/dev/null || true
+          find . -type d -name "build" -exec rm -rf {} + 2>/dev/null || true
+
       - name: Export Expo Bundle
         run: npx expo export --platform android
 
@@ -39,8 +44,8 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew clean
-          ./gradlew assembleRelease --no-build-cache
+          ./gradlew clean --no-build-cache
+          ./gradlew assembleRelease --stacktrace --no-build-cache
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
