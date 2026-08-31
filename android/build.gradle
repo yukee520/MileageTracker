@@ -8,6 +8,8 @@ buildscript {
         targetSdkVersion = 34
         ndkVersion = "25.1.8937393"
         kotlinVersion = "1.9.0"
+        // Use the react-native version from your package.json
+        reactNativeVersion = "0.81.5"
     }
     repositories {
         google()
@@ -15,7 +17,7 @@ buildscript {
     }
     dependencies {
         classpath("com.android.tools.build:gradle:7.3.1")
-        // Use react-native-gradle-plugin without version - it will use the one from node_modules
+        // Use the version from your react-native package
         classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
     }
@@ -33,5 +35,12 @@ allprojects {
         }
         google()
         maven { url 'https://www.jitpack.io' }
+    }
+}
+
+// Force the plugin to use the correct version from node_modules
+subprojects { subproject ->
+    if (subproject.name == 'react-native-gradle-plugin') {
+        subproject.version = '0.81.5'
     }
 }
