@@ -1,0 +1,34 @@
+name: Docker Android Build
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: reactnativecommunity/react-native-android:latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install Node.js
+        run: |
+          apt-get update
+          apt-get install -y nodejs npm
+          npm install -g n
+          n 20
+      
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+      
+      - name: Build APK
+        run: |
+          cd android
+          ./gradlew assembleRelease --no-daemon
+      
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: MileageTracker-APK
+          path: android/app/build/outputs/apk/release/*.apk
