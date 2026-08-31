@@ -21,7 +21,7 @@ react {
     bundleCommand = "export:embed"
 
     /* Folders */
-     //   The root of your project, i.e. where "package.json" lives. Default is '../..'
+    //   The root of your project, i.e. where "package.json" lives. Default is '../..'
     // root = file("../../")
     //   The folder where the react-native NPM package is. Default is ../../node_modules/react-native
     // reactNativeDir = file("../../node_modules/react-native")
@@ -61,7 +61,6 @@ react {
 
     /* Autolinking */
     autolinkLibrariesWithApp()
-
 }
 
 /**
@@ -95,16 +94,28 @@ android {
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0.0"
+        
         // Line 84-86 (Corrected)
         externalNativeBuild {
-        cmake {
-        arguments "-DANDROID_STL=c++_shared"
-              }
-       }
-
+            cmake {
+                arguments "-DANDROID_STL=c++_shared"
+            }
+        }
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
     }
+    
+    // ========== ADD THIS: Java version configuration ==========
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
+    }
+    
+    kotlinOptions {
+        jvmTarget = '21'
+    }
+    // ========== END ADD ==========
+    
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
