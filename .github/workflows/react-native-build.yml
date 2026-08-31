@@ -24,11 +24,18 @@ jobs:
       
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
+      
+      - name: Accept Android SDK licenses (fallback)
+        run: |
+          yes | /usr/local/lib/android/sdk/cmdline-tools/latest/bin/sdkmanager --licenses || true
+          yes | /usr/local/lib/android/sdk/cmdline-tools/16.0/bin/sdkmanager --licenses || true
       
       - name: Install dependencies
         run: npm install --legacy-peer-deps
       
-      - name: Clean React Native build
+      - name: Clean build
         run: |
           cd android
           ./gradlew clean
@@ -37,7 +44,7 @@ jobs:
         run: |
           cd android
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon -x bundleReleaseJsAndAssets
+          ./gradlew assembleRelease --no-daemon
       
       - name: Upload APK
         uses: actions/upload-artifact@v4
