@@ -6,44 +6,45 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
-
-      - name: Set up Node.js
+      
+      - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v5
+          node-version: 18
+      
+      - name: Setup Java
+        uses: actions/setup-java@v4
         with:
-          java-version: '17'
           distribution: 'temurin'
-          cache: 'gradle'
-
-      - name: Clean workspace & purge build caches
-        run: |
-          rm -rf node_modules dist
-          find . -type d \( -name ".cxx" -o -name "build" -o -name ".gradle" \) -exec rm -rf {} + 2>/dev/null || true
-
+          java-version: '17'
+      
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+      
       - name: Install dependencies
-        run: npm ci --legacy-peer-deps
-
-      - name: Build APK with Gradle
-        env:
-          NODE_OPTIONS: "--max-old-space-size=4096"
-          ANDROID_NDK_HOME: /usr/local/lib/android/sdk/ndk/25.2.9519653
+        run: npm install --legacy-peer-deps
+      
+      - name: Install Expo CLI
+        run: npm install -g expo-cli
+      
+      - name: Generate Android folder
+        run: npx expo prebuild --platform android --clean --non-interactive
+      
+      - name: Make gradlew executable
+        run: chmod +x android/gradlew
+      
+      - name: Build APK
         run: |
           cd android
-          chmod +x gradlew
-          ./gradlew clean --no-build-cache
-          ./gradlew assembleRelease \
-            -Pandroid.ndkPath=/usr/local/lib/android/sdk/ndk/25.2.9519653 \
-            --no-build-cache
-
-      - name: Upload APK Artifact
+          ./gradlew assembleRelease --stacktrace
+      
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: MileageTracker-APK
           path: android/app/build/outputs/apk/release/*.apk
+          retention-days: 30
