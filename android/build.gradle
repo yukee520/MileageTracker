@@ -15,7 +15,8 @@ buildscript {
     }
     dependencies {
         classpath("com.android.tools.build:gradle:7.3.1")
-        classpath("com.facebook.react:react-native-gradle-plugin:0.81.5")
+        // Use react-native-gradle-plugin without version - it will use the one from node_modules
+        classpath("com.facebook.react:react-native-gradle-plugin")
         classpath("org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion")
     }
 }
