@@ -6,22 +6,18 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal",
-      "android": {
-        "gradleProperties": {
-          "hermesEnabled": "false",
-          "expo.jsEngine": "jsc"
-        }
-      }
+      "distribution": "internal"
     },
     "preview": {
       "distribution": "internal",
       "android": {
         "buildType": "apk",
         "gradleProperties": {
-          "hermesEnabled": "false",
-          "expo.jsEngine": "jsc"
+          "hermesEnabled": "false"
         }
+      },
+      "env": {
+        "EXPO_USE_HERMES": "false"
       }
     },
     "production": {
@@ -29,9 +25,11 @@
       "android": {
         "buildType": "app-bundle",
         "gradleProperties": {
-          "hermesEnabled": "false",
-          "expo.jsEngine": "jsc"
+          "hermesEnabled": "false"
         }
+      },
+      "env": {
+        "EXPO_USE_HERMES": "false"
       }
     }
   },
