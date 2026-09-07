@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, ActivityIndicator, Alert, TextInput, Modal, Share, Platform, Linking } from 'react-native';
-import MapView, { Polyline, Marker } from 'react-native-maps';
+// import MapView, { Polyline, Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
@@ -1937,11 +1937,18 @@ export default function App() {
           <ScrollView style={styles.content}>
             <Text style={styles.header}>Trip Tracking</Text>
             {route.length > 0 && (
-              <MapView style={styles.map} initialRegion={{ latitude: route[route.length - 1].latitude, longitude: route[route.length - 1].longitude, latitudeDelta: 0.01, longitudeDelta: 0.01 }}>
-                <Polyline coordinates={route} strokeWidth={4} strokeColor="blue" />
-                <Marker coordinate={route[0]} title="Start" />
-                {route.length > 1 && <Marker coordinate={route[route.length - 1]} title="Current" />}
-              </MapView>
+   //           <MapView style={styles.map} initialRegion={{ latitude: route[route.length - 1].latitude, longitude: route[route.length - 1].longitude, latitudeDelta: 0.01, longitudeDelta: 0.01 }}>
+   //             <Polyline coordinates={route} strokeWidth={4} strokeColor="blue" />
+   //             <Marker coordinate={route[0]} title="Start" />
+   //             {route.length > 1 && <Marker coordinate={route[route.length - 1]} title="Current" />}
+   //           </MapView>
+     <View style={{ padding: 16, backgroundColor: '#f3f4f6', borderRadius: 8, marginVertical: 10 }}>
+  <Text style={{ fontSize: 12, color: '#666', fontWeight: 'bold' }}>CURRENT LOCATION</Text>
+  <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#111', marginTop: 4 }}>
+    {currentAddress || 'Tracking location...'}
+  </Text>
+</View>
+
             )}
             {tracking ? (
               <View style={styles.trackingControls}>
