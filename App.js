@@ -150,18 +150,17 @@ export default function App() {                                          const [
                                                                          // ============================================================
   // DEEP LINK EFFECTS
   // ============================================================
-    useEffect(() => {
+  useEffect(() => {
     // Handle initial URL when app starts
     const handleInitialUrl = async () => {
       try {
-        const url = await Linking.getInitialURL();
-        if (url) {
+        const url = await Linking.getInitialURL();                             if (url) {
           await handleDeepLink(url);
         }
       } catch (error) {
         console.error('Error getting initial URL:', error);
       }
-    };
+    };                                                                 
     handleInitialUrl();
 
     // Listen for deep links while app is running
@@ -173,22 +172,22 @@ export default function App() {                                          const [
       subscription.remove();
     };
   }, []);
-                                                              
-// Check for saved referral code on login
-useEffect(() => {
-  const checkSavedReferral = async () => {
-    if (user?.id) {
-      const savedCode = await AsyncStorage.getItem('@referral_code');
-      if (savedCode) {
-        await applyReferralCode(savedCode);
-      }
-    }
-  };
 
-  if (user?.id) {
-    checkSavedReferral();
-  }
-}, [user]);
+  // Check for saved referral code on login
+  useEffect(() => {
+    const checkSavedReferral = async () => {
+      if (user?.id) {
+        const savedCode = await AsyncStorage.getItem('@referral_code');
+        if (savedCode) {
+          await applyReferralCode(savedCode);
+        }
+      }
+    };
+
+    if (user?.id) {
+      checkSavedReferral();
+    }
+  }, [user]);
 
   // ============================================================
   // LOAD TRIPS
@@ -451,21 +450,28 @@ useEffect(() => {
 
   // ============================================================
   // COMPUTED VALUES
-  // ============================================================        const getCurrentMonthTripCount = useCallback(() => {
-    const now = new Date();                                                const currentYear = `${now.getFullYear()}`;
+  // ============================================================
+  const getCurrentMonthTripCount = useCallback(() => {
+    const now = new Date();
+    const currentYear = `${now.getFullYear()}`;
     const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
-                                                                           const count = trips.filter(t => {                                        if (userId && t.userId === userId) {
+
+    const count = trips.filter(t => {
+      if (userId && t.userId === userId) {
         return t.year === currentYear && t.month === currentMonth;
       }
       return t.year === currentYear && t.month === currentMonth && t.userName === driverName;
     }).length;
 
     return count;
-  }, [trips, userId, driverName]);                                                                                                                const monthlyUsageCount = useMemo(() => getCurrentMonthTripCount(), [getCurrentMonthTripCount]);
+  }, [trips, userId, driverName]);
+
+  const monthlyUsageCount = useMemo(() => getCurrentMonthTripCount(), [getCurrentMonthTripCount]);
   const currentConfig = useMemo(() => TIER_CONFIG[subscriptionTier] || TIER_CONFIG['Personal Free'], [subscriptionTier]);
   const currentLimit = useMemo(() => currentConfig.limit, [currentConfig]);
   const isUsageLimitReached = useMemo(() => monthlyUsageCount >= currentLimit, [monthlyUsageCount, currentLimit]);
-                                                                         const availableYears = useMemo(() => {
+
+  const availableYears = useMemo(() => {
     return Array.from(new Set(trips.map(t => t.year).filter(Boolean))).sort().reverse();
   }, [trips]);
 
