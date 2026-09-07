@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, ActivityIndicator, Alert, TextInput, Modal, Share, Platform, Linking, AppState } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, ActivityIndicator, Alert, TextInput, Modal, Share, Platform, Linking, AppState, BackHandler } from 'react-native';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -36,6 +36,7 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
         });
         if (route.length > 1000) route.shift();
         await AsyncStorage.setItem('@background_route', JSON.stringify(route));
+        console.log('📍 Background location saved:', route.length, 'points');
       } catch (e) {
         console.error('Error saving background location:', e);
       }
@@ -150,6 +151,7 @@ export default function App() {
   const [currentAddress, setCurrentAddress] = useState('');
   const [appState, setAppState] = useState(AppState.currentState);
   const [isBackgroundTracking, setIsBackgroundTracking] = useState(false);
+  const [isTrackingActive, setIsTrackingActive] = useState(false);
 
   const [pendingReferralCode, setPendingReferralCode] = useState(null);
   const isLoadingRef = useRef(false);
@@ -157,6 +159,7 @@ export default function App() {
   const isFirstRender = useRef(true);
   const isTrackingRef = useRef(false);
   const routeRef = useRef([]);
+  const watchSubscriptionRef = useRef(null);
 
   // ============================================================
   // DEEP LINK HANDLER
@@ -164,7 +167,7 @@ export default function App() {
   const handleDeepLink = async (url) => {
     try {
       console.log('Deep link received:', url);
-      if (url && url.includes('https://drive.google.com/drive/folders/1yOV-p50YAiniv5oyhx1Yl2VQTpGIFVij')) {
+      if (url && url.includes('mileagetracker://referral')) {
         const params = new URLSearchParams(url.split('?')[1]);
         const code = params.get('code');
         if (code) {
@@ -251,6 +254,8 @@ export default function App() {
   // ============================================================
   useEffect(() => {
     const handleAppStateChange = async (nextAppState) => {
+      console.log('App state changed:', appState, '->', nextAppState);
+      
       if (appState.match(/inactive|background/) && nextAppState === 'active') {
         console.log('App came to foreground');
         if (isTrackingRef.current) {
@@ -259,6 +264,7 @@ export default function App() {
             if (savedRoute) {
               const bgRoute = JSON.parse(savedRoute);
               if (bgRoute.length > 0) {
+                console.log('Restoring background route points:', bgRoute.length);
                 setRoute(prev => {
                   const combined = [...prev, ...bgRoute];
                   const unique = combined.filter((point, index, self) => 
@@ -295,38 +301,104 @@ export default function App() {
   // ============================================================
   const startBackgroundTracking = async () => {
     try {
+      console.log('Starting background tracking...');
+      
+      // Check if we have background permission
       const { status } = await Location.requestBackgroundPermissionsAsync();
+      console.log('Background permission status:', status);
+      
       if (status !== 'granted') {
         console.log('Background location permission denied');
+        Alert.alert(
+          'Background Permission Needed',
+          'Please allow background location access to continue tracking your trip when the app is in the background.\n\nGo to Settings > Apps > Mileage Tracker > Permissions > Location > Allow all the time.',
+          [
+            { text: 'OK' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() }
+          ]
+        );
         return;
       }
 
+      // Check if task is already registered
+      const isTaskRegistered = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
+      console.log('Task registered:', isTaskRegistered);
+
+      // Start location updates
       await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
         accuracy: Location.Accuracy.High,
-        timeInterval: 5000,
-        distanceInterval: 5,
+        timeInterval: 3000, // 3 seconds
+        distanceInterval: 3, // 3 meters
         foregroundService: {
-          notificationTitle: 'Mileage Tracker',
+          notificationTitle: '🚗 Mileage Tracker',
           notificationBody: 'Tracking your trip in background...',
           notificationColor: '#007AFF',
         },
+        pausesUpdatesAutomatically: false,
+        showsBackgroundLocationIndicator: true,
       });
+      
       setIsBackgroundTracking(true);
-      console.log('Background tracking started');
+      console.log('✅ Background tracking started successfully');
     } catch (error) {
       console.error('Error starting background tracking:', error);
+      Alert.alert('Background Tracking Error', 'Could not start background tracking: ' + error.message);
     }
   };
 
   const stopBackgroundTracking = async () => {
     try {
-      await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+      console.log('Stopping background tracking...');
+      const isTaskRegistered = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
+      if (isTaskRegistered) {
+        await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+      }
       setIsBackgroundTracking(false);
-      console.log('Background tracking stopped');
+      console.log('✅ Background tracking stopped');
     } catch (error) {
       console.error('Error stopping background tracking:', error);
     }
   };
+
+  // Restore tracking state on app start
+  useEffect(() => {
+    const restoreTrackingState = async () => {
+      try {
+        const isTracking = await AsyncStorage.getItem('@is_tracking');
+        if (isTracking === 'true') {
+          const savedRoute = await AsyncStorage.getItem('@background_route');
+          if (savedRoute) {
+            const bgRoute = JSON.parse(savedRoute);
+            if (bgRoute.length > 0) {
+              console.log('Restoring tracking state with', bgRoute.length, 'points');
+              setRoute(bgRoute);
+              routeRef.current = bgRoute;
+              setTracking(true);
+              isTrackingRef.current = true;
+              setIsTrackingActive(true);
+              // Request permissions again if needed
+              await startBackgroundTracking();
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Error restoring tracking state:', e);
+      }
+    };
+    restoreTrackingState();
+  }, []);
+
+  // Save tracking state when it changes
+  useEffect(() => {
+    const saveTrackingState = async () => {
+      try {
+        await AsyncStorage.setItem('@is_tracking', String(isTrackingRef.current));
+      } catch (e) {
+        console.error('Error saving tracking state:', e);
+      }
+    };
+    saveTrackingState();
+  }, [tracking]);
 
   // ============================================================
   // LOAD TRIPS
@@ -1095,58 +1167,73 @@ export default function App() {
   };
 
   const endTrip = async () => {
-    if (subscription) subscription.remove();
-    await stopBackgroundTracking();
-    isTrackingRef.current = false;
-    setTracking(false);
-    setLoadingSummary(true);
+    try {
+      // Stop all tracking
+      if (watchSubscriptionRef.current) {
+        watchSubscriptionRef.current.remove();
+        watchSubscriptionRef.current = null;
+      }
+      await stopBackgroundTracking();
+      isTrackingRef.current = false;
+      setIsTrackingActive(false);
+      setTracking(false);
+      setLoadingSummary(true);
 
-    const endTime = new Date();
-    const distanceKM = calculateDistance(route);
+      const endTime = new Date();
+      const distanceKM = calculateDistance(route);
 
-    let fromAddr = 'N/A', toAddr = 'N/A', extractedPlaceName = '';
+      let fromAddr = 'N/A', toAddr = 'N/A', extractedPlaceName = '';
 
-    if (route.length > 0) {
-      const startInfo = await getAddressInfo(route[0]);
-      const endInfo = await getAddressInfo(route[route.length - 1]);
-      fromAddr = startInfo.simpleAddress;
-      toAddr = endInfo.simpleAddress;
-      extractedPlaceName = endInfo.placeName;
-    }
+      if (route.length > 0) {
+        const startInfo = await getAddressInfo(route[0]);
+        const endInfo = await getAddressInfo(route[route.length - 1]);
+        fromAddr = startInfo.simpleAddress;
+        toAddr = endInfo.simpleAddress;
+        extractedPlaceName = endInfo.placeName;
+      }
 
-    const startDateObj = new Date(startTime);
-    const dateString = startDateObj.toLocaleDateString();
+      const startDateObj = new Date(startTime);
+      const dateString = startDateObj.toLocaleDateString();
 
-    const tripData = {
-      date: dateString,
-      year: startDateObj.getFullYear().toString(),
-      month: String(startDateObj.getMonth() + 1).padStart(2, '0'),
-      time: `${startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - ${endTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`,
-      purposeCategory: selectedCategory,
-      purpose: selectedPurpose || 'General',
-      from: fromAddr,
-      to: toAddr,
-      placeName: extractedPlaceName,
-      distance: parseFloat(distanceKM),
-      userName: driverName
-    };
-
-    const savedTrip = await syncTripToSupabase(tripData);
-
-    if (savedTrip) {
-      const newTrip = {
-        id: savedTrip.id,
-        ...tripData
+      const tripData = {
+        date: dateString,
+        year: startDateObj.getFullYear().toString(),
+        month: String(startDateObj.getMonth() + 1).padStart(2, '0'),
+        time: `${startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - ${endTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`,
+        purposeCategory: selectedCategory,
+        purpose: selectedPurpose || 'General',
+        from: fromAddr,
+        to: toAddr,
+        placeName: extractedPlaceName,
+        distance: parseFloat(distanceKM),
+        userName: driverName
       };
-      const updatedHistory = [newTrip, ...trips];
-      await saveTrips(updatedHistory);
-      setActiveTrip(newTrip);
-      setViewingTrip(newTrip);
 
-      await ReferralService.checkAndRewardReferral(user.id);
+      const savedTrip = await syncTripToSupabase(tripData);
+
+      if (savedTrip) {
+        const newTrip = {
+          id: savedTrip.id,
+          ...tripData
+        };
+        const updatedHistory = [newTrip, ...trips];
+        await saveTrips(updatedHistory);
+        setActiveTrip(newTrip);
+        setViewingTrip(newTrip);
+
+        await ReferralService.checkAndRewardReferral(user.id);
+      }
+
+      // Clear saved tracking state
+      await AsyncStorage.removeItem('@is_tracking');
+      await AsyncStorage.removeItem('@background_route');
+
+      setLoadingSummary(false);
+    } catch (error) {
+      console.error('Error ending trip:', error);
+      setLoadingSummary(false);
+      Alert.alert('Error', 'Failed to end trip: ' + error.message);
     }
-
-    setLoadingSummary(false);
   };
 
   const handleSaveEdit = async () => {
@@ -1278,52 +1365,77 @@ export default function App() {
   };
 
   const startTripWithPurpose = async (purposeName) => {
-    let { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert('Permission Denied', 'Permission to access location was denied');
-      return;
-    }
-
-    // Also request background permission
-    const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
-    if (bgStatus !== 'granted') {
-      console.log('Background location permission not granted - tracking may stop when app is in background');
-    }
-
-    setSelectedPurpose(purposeName);
-    setRoute([]);
-    setActiveTrip(null);
-    setStartTime(new Date());
-    setTracking(true);
-    isTrackingRef.current = true;
-    setActiveTab('tracking');
-
-    const sub = await Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.High, distanceInterval: 5 },
-      async (loc) => {
-        setRoute((prev) => {
-          const newRoute = [...prev, { latitude: loc.coords.latitude, longitude: loc.coords.longitude }];
-          routeRef.current = newRoute;
-          return newRoute;
-        });
-
-        try {
-          const [address] = await Location.reverseGeocodeAsync({
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-          });
-          if (address) {
-            const street = address.street || address.name || 'Current Location';
-            const area = address.district || address.subregion || address.city || '';
-            const fullAddress = area ? `${street}, ${area}` : street;
-            setCurrentAddress(fullAddress);
-          }
-        } catch (e) {
-          console.log('Geocode error:', e);
-        }
+    try {
+      // Request foreground permission
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Permission to access location was denied');
+        return;
       }
-    );
-    setSubscription(sub);
+
+      // Also request background permission
+      const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+      if (bgStatus !== 'granted') {
+        Alert.alert(
+          'Background Permission Recommended',
+          'For best experience, please allow background location access to continue tracking when the app is in the background.',
+          [
+            { text: 'Continue Anyway', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() }
+          ]
+        );
+      }
+
+      setSelectedPurpose(purposeName);
+      setRoute([]);
+      routeRef.current = [];
+      setActiveTrip(null);
+      setStartTime(new Date());
+      setTracking(true);
+      isTrackingRef.current = true;
+      setIsTrackingActive(true);
+      setActiveTab('tracking');
+
+      // Start foreground location tracking
+      const sub = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.High, distanceInterval: 5 },
+        async (loc) => {
+          setRoute((prev) => {
+            const newRoute = [...prev, { latitude: loc.coords.latitude, longitude: loc.coords.longitude }];
+            routeRef.current = newRoute;
+            return newRoute;
+          });
+
+          try {
+            const [address] = await Location.reverseGeocodeAsync({
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude,
+            });
+            if (address) {
+              const street = address.street || address.name || 'Current Location';
+              const area = address.district || address.subregion || address.city || '';
+              const fullAddress = area ? `${street}, ${area}` : street;
+              setCurrentAddress(fullAddress);
+            }
+          } catch (e) {
+            console.log('Geocode error:', e);
+          }
+        }
+      );
+      
+      watchSubscriptionRef.current = sub;
+
+      // Start background tracking immediately
+      await startBackgroundTracking();
+
+      // Save tracking state
+      await AsyncStorage.setItem('@is_tracking', 'true');
+
+      console.log('✅ Trip tracking started successfully');
+    } catch (error) {
+      console.error('Error starting trip:', error);
+      Alert.alert('Error', 'Failed to start trip: ' + error.message);
+    }
   };
 
   const deleteActiveTrip = () => {
@@ -1333,15 +1445,27 @@ export default function App() {
         text: "Discard",
         style: "destructive",
         onPress: async () => {
-          if (subscription) subscription.remove();
-          await stopBackgroundTracking();
-          isTrackingRef.current = false;
-          setSubscription(null);
-          setTracking(false);
-          setRoute([]);
-          setActiveTrip(null);
-          setLoadingSummary(false);
-          setActiveTab('home');
+          try {
+            if (watchSubscriptionRef.current) {
+              watchSubscriptionRef.current.remove();
+              watchSubscriptionRef.current = null;
+            }
+            await stopBackgroundTracking();
+            isTrackingRef.current = false;
+            setIsTrackingActive(false);
+            setSubscription(null);
+            setTracking(false);
+            setRoute([]);
+            routeRef.current = [];
+            setActiveTrip(null);
+            setLoadingSummary(false);
+            setActiveTab('home');
+            await AsyncStorage.removeItem('@is_tracking');
+            await AsyncStorage.removeItem('@background_route');
+            console.log('✅ Trip discarded successfully');
+          } catch (error) {
+            console.error('Error discarding trip:', error);
+          }
         }
       }
     ]);
@@ -1810,6 +1934,14 @@ export default function App() {
               {isUsageLimitReached && <Text style={styles.usageWarningText}>⚠️ Usage limit reached. Upgrade to record more trips!</Text>}
             </View>
 
+            {/* Show tracking status */}
+            {isTrackingActive && (
+              <View style={styles.trackingStatusCard}>
+                <Text style={styles.trackingStatusText}>🔴 Tracking in progress...</Text>
+                <Text style={styles.trackingStatusSub}>Trip will continue in background</Text>
+              </View>
+            )}
+
             <TouchableOpacity
               style={[styles.startTripBtn, isUsageLimitReached && { backgroundColor: '#6c757d' }]}
               onPress={handleInitiateNewTrip}>
@@ -2070,6 +2202,14 @@ export default function App() {
         {activeTab === 'tracking' && (
           <ScrollView style={styles.content}>
             <Text style={styles.header}>Trip Tracking</Text>
+            
+            {/* Tracking Status Indicator */}
+            <View style={styles.trackingStatusCard}>
+              <Text style={styles.trackingStatusText}>🔴 Currently Tracking</Text>
+              <Text style={styles.trackingStatusSub}>This trip will continue even if you close the app</Text>
+              <Text style={styles.trackingStatusPoints}>📍 Points tracked: {route.length}</Text>
+            </View>
+
             {route.length > 0 && (
               <View style={{ padding: 16, backgroundColor: '#f3f4f6', borderRadius: 8, marginVertical: 10 }}>
                 <Text style={{ fontSize: 12, color: '#666', fontWeight: 'bold' }}>CURRENT LOCATION</Text>
@@ -2447,6 +2587,10 @@ const styles = StyleSheet.create({
   progressTrack: { height: 8, backgroundColor: '#e9ecef', borderRadius: 4, overflow: 'hidden', marginTop: 6 },
   progressBar: { height: '100%', backgroundColor: '#28a745' },
   usageWarningText: { fontSize: 12, color: '#dc3545', marginTop: 6, fontWeight: 'bold' },
+  trackingStatusCard: { backgroundColor: '#fff3cd', padding: 12, borderRadius: 8, marginBottom: 15, borderWidth: 1, borderColor: '#ffc107' },
+  trackingStatusText: { fontSize: 14, fontWeight: 'bold', color: '#856404', textAlign: 'center' },
+  trackingStatusSub: { fontSize: 12, color: '#856404', textAlign: 'center', marginTop: 2 },
+  trackingStatusPoints: { fontSize: 11, color: '#856404', textAlign: 'center', marginTop: 4 },
   dropdownContainer: { marginBottom: 15 },
   filterLabel: { fontSize: 12, color: '#888', fontWeight: 'bold', marginBottom: 6 },
   dropdownRow: { flexDirection: 'row', justifyContent: 'space-between' },
@@ -2575,3 +2719,4 @@ const styles = StyleSheet.create({
   editCategoryText: { fontSize: 14, fontWeight: '600', color: '#555' },
   editCategoryTextActive: { color: '#fff' }
 });
+

@@ -13,7 +13,7 @@ import ReferralService from '../services/ReferralService';
 // Option 1: Google Drive APK Link (Recommended for testing)
 // Upload your APK to Google Drive, get the shareable link
 // Make sure the link is set to "Anyone with the link can view"
-const APP_DOWNLOAD_LINK = 'https://drive.google.com/file/d/1jIIm1TkDqEUEIb8WY26tXfMJeOfAxKuM/view?usp=sharing';
+const APP_DOWNLOAD_LINK = 'https://drive.google.com/drive/folders/1yOV-p50YAiniv5oyhx1Yl2VQTpGIFVij';
 
 // Option 2: Google Play Store Link (For production)
 // const APP_DOWNLOAD_LINK = 'https://play.google.com/store/apps/details?id=com.yourcompany.mileagetracker';

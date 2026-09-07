@@ -17,7 +17,13 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.yukee.MileageTracker"
+      "bundleIdentifier": "com.yukee.MileageTracker",
+      "infoPlist": {
+        "UIBackgroundModes": ["location"],
+        "NSLocationWhenInUseUsageDescription": "Mileage Tracker needs access to your location to track your trips.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Mileage Tracker needs access to your location to track trips even when the app is in the background.",
+        "NSLocationAlwaysUsageDescription": "Mileage Tracker needs access to your location to track trips even when the app is in the background."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -28,8 +34,17 @@
       "permissions": [
         "android.permission.ACCESS_COARSE_LOCATION",
         "android.permission.ACCESS_FINE_LOCATION",
-        "android.permission.FOREGROUND_SERVICE"
-      ]
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.WAKE_LOCK",
+        "android.permission.RECEIVE_BOOT_COMPLETED"
+      ],
+      "foregroundService": {
+        "notificationTitle": "Mileage Tracker",
+        "notificationBody": "Tracking your trip...",
+        "notificationColor": "#007AFF",
+        "notificationPriority": "high"
+      }
     },
     "extra": {
       "eas": {
@@ -42,11 +57,14 @@
       [
         "expo-location",
         {
-          "locationAlwaysAndWhenInUsePermission": "Allow MileageTracker to use your location to track trips.",
+          "locationAlwaysAndWhenInUsePermission": "Allow Mileage Tracker to use your location to track trips.",
+          "locationWhenInUsePermission": "Allow Mileage Tracker to use your location to track trips.",
           "isAndroidBackgroundLocationEnabled": true,
-          "isAndroidForegroundServiceEnabled": true
+          "isAndroidForegroundServiceEnabled": true,
+          "isIosBackgroundLocationEnabled": true
         }
-      ]
+      ],
+      "expo-task-manager"
     ]
   }
 }
