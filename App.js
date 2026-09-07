@@ -461,7 +461,10 @@ useEffect(() => {
     }).length;
 
     return count;
-  }, [trips, userId, driverName]);                                                                                                              const monthlyUsageCount = useMemo(() => getCurrentMonthTripCount(), [getCurrentMonthTripCount]);                                              const currentConfig = useMemo(() => TIER_CONFIG[subscriptionTier] || TIER_CONFIG['Personal Free'], [subscriptionTier]);                       const currentLimit = useMemo(() => currentConfig.limit, [currentConfig]);                                                                     const isUsageLimitReached = useMemo(() => monthlyUsageCount >= currentLimit, [monthlyUsageCount, currentLimit]);
+  }, [trips, userId, driverName]);                                                                                                                const monthlyUsageCount = useMemo(() => getCurrentMonthTripCount(), [getCurrentMonthTripCount]);
+  const currentConfig = useMemo(() => TIER_CONFIG[subscriptionTier] || TIER_CONFIG['Personal Free'], [subscriptionTier]);
+  const currentLimit = useMemo(() => currentConfig.limit, [currentConfig]);
+  const isUsageLimitReached = useMemo(() => monthlyUsageCount >= currentLimit, [monthlyUsageCount, currentLimit]);
                                                                          const availableYears = useMemo(() => {
     return Array.from(new Set(trips.map(t => t.year).filter(Boolean))).sort().reverse();
   }, [trips]);
