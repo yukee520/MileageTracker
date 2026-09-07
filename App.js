@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, ActivityIndicator, Alert, TextInput, Modal, Share, Platform, Linking, AppState, BackHandler } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, ActivityIndicator, Alert, TextInput, Modal, Share, Platform, Linking, AppState } from 'react-native';
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -297,43 +297,49 @@ export default function App() {
   }, [appState]);
 
   // ============================================================
-  // BACKGROUND TRACKING FUNCTIONS
+  // BACKGROUND TRACKING FUNCTIONS - FIXED
   // ============================================================
   const startBackgroundTracking = async () => {
     try {
       console.log('Starting background tracking...');
       
       // Check if we have background permission
-      const { status } = await Location.requestBackgroundPermissionsAsync();
+      const { status } = await Location.getBackgroundPermissionsAsync();
       console.log('Background permission status:', status);
       
       if (status !== 'granted') {
-        console.log('Background location permission denied');
-        Alert.alert(
-          'Background Permission Needed',
-          'Please allow background location access to continue tracking your trip when the app is in the background.\n\nGo to Settings > Apps > Mileage Tracker > Permissions > Location > Allow all the time.',
-          [
-            { text: 'OK' },
-            { text: 'Open Settings', onPress: () => Linking.openSettings() }
-          ]
-        );
-        return;
+        console.log('Background location permission not granted, requesting...');
+        const { status: newStatus } = await Location.requestBackgroundPermissionsAsync();
+        if (newStatus !== 'granted') {
+          console.log('Background location permission denied');
+          Alert.alert(
+            'Background Permission Needed',
+            'Please allow background location access to continue tracking your trip when the app is in the background.\n\nGo to Settings > Apps > Mileage Tracker > Permissions > Location > Allow all the time.',
+            [
+              { text: 'OK' },
+              { text: 'Open Settings', onPress: () => Linking.openSettings() }
+            ]
+          );
+          return;
+        }
       }
 
       // Check if task is already registered
       const isTaskRegistered = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
       console.log('Task registered:', isTaskRegistered);
 
-      // Start location updates
+      // Start location updates - WITHOUT foreground service for now
+      // The foreground service will be started when the app is in foreground
       await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
         accuracy: Location.Accuracy.High,
-        timeInterval: 3000, // 3 seconds
-        distanceInterval: 3, // 3 meters
-        foregroundService: {
+        timeInterval: 3000,
+        distanceInterval: 3,
+        // Only use foreground service when app is in foreground
+        foregroundService: Platform.OS === 'android' && appState === 'active' ? {
           notificationTitle: '🚗 Mileage Tracker',
-          notificationBody: 'Tracking your trip in background...',
+          notificationBody: 'Tracking your trip...',
           notificationColor: '#007AFF',
-        },
+        } : undefined,
         pausesUpdatesAutomatically: false,
         showsBackgroundLocationIndicator: true,
       });
@@ -342,7 +348,44 @@ export default function App() {
       console.log('✅ Background tracking started successfully');
     } catch (error) {
       console.error('Error starting background tracking:', error);
-      Alert.alert('Background Tracking Error', 'Could not start background tracking: ' + error.message);
+      // Don't show alert for this error as it might be recoverable
+      // Alert.alert('Background Tracking Error', 'Could not start background tracking: ' + error.message);
+    }
+  };
+
+  const startForegroundTracking = async () => {
+    try {
+      console.log('Starting foreground tracking...');
+      const { status } = await Location.getForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        const { status: newStatus } = await Location.requestForegroundPermissionsAsync();
+        if (newStatus !== 'granted') {
+          Alert.alert('Permission Denied', 'Location permission is required for tracking.');
+          return false;
+        }
+      }
+      
+      // Start foreground location updates with service
+      await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
+        accuracy: Location.Accuracy.High,
+        timeInterval: 3000,
+        distanceInterval: 3,
+        foregroundService: {
+          notificationTitle: '🚗 Mileage Tracker',
+          notificationBody: 'Tracking your trip...',
+          notificationColor: '#007AFF',
+        },
+        pausesUpdatesAutomatically: false,
+        showsBackgroundLocationIndicator: true,
+      });
+      
+      setIsBackgroundTracking(true);
+      console.log('✅ Foreground tracking started successfully');
+      return true;
+    } catch (error) {
+      console.error('Error starting foreground tracking:', error);
+      Alert.alert('Tracking Error', 'Could not start tracking: ' + error.message);
+      return false;
     }
   };
 
@@ -376,8 +419,6 @@ export default function App() {
               setTracking(true);
               isTrackingRef.current = true;
               setIsTrackingActive(true);
-              // Request permissions again if needed
-              await startBackgroundTracking();
             }
           }
         }
@@ -1373,17 +1414,10 @@ export default function App() {
         return;
       }
 
-      // Also request background permission
+      // Request background permission (but don't fail if not granted)
       const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
       if (bgStatus !== 'granted') {
-        Alert.alert(
-          'Background Permission Recommended',
-          'For best experience, please allow background location access to continue tracking when the app is in the background.',
-          [
-            { text: 'Continue Anyway', style: 'cancel' },
-            { text: 'Open Settings', onPress: () => Linking.openSettings() }
-          ]
-        );
+        console.log('Background permission not granted - will only track in foreground');
       }
 
       setSelectedPurpose(purposeName);
@@ -1425,8 +1459,13 @@ export default function App() {
       
       watchSubscriptionRef.current = sub;
 
-      // Start background tracking immediately
-      await startBackgroundTracking();
+      // Try to start background tracking (may fail if no permission, that's OK)
+      try {
+        await startBackgroundTracking();
+      } catch (bgError) {
+        console.log('Background tracking not available:', bgError.message);
+        // Don't show error to user - tracking will work in foreground
+      }
 
       // Save tracking state
       await AsyncStorage.setItem('@is_tracking', 'true');
