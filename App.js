@@ -1,15 +1,47 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, ActivityIndicator, Alert, TextInput, Modal, Share, Platform, Linking } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, ActivityIndicator, Alert, TextInput, Modal, Share, Platform, Linking, AppState } from 'react-native';
 import * as Location from 'expo-location';
+import * as TaskManager from 'expo-task-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import ExcelJS from 'exceljs';
 import PaymentModal from './components/PaymentModal';
 import AdminPanel from './components/AdminPanel';
 import ReferralScreen from './components/ReferralScreen';
 import ReferralService from './services/ReferralService';
+
+// ============================================================
+// TASK DEFINITION FOR BACKGROUND LOCATION
+// ============================================================
+const LOCATION_TASK_NAME = 'background-location-task';
+
+TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
+  if (error) {
+    console.error('Background location error:', error);
+    return;
+  }
+  if (data) {
+    const { locations } = data;
+    const location = locations[0];
+    if (location) {
+      try {
+        const existing = await AsyncStorage.getItem('@background_route');
+        const route = existing ? JSON.parse(existing) : [];
+        route.push({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+          timestamp: location.timestamp
+        });
+        if (route.length > 1000) route.shift();
+        await AsyncStorage.setItem('@background_route', JSON.stringify(route));
+      } catch (e) {
+        console.error('Error saving background location:', e);
+      }
+    }
+  }
+});
 
 // ============================================================
 // SUPABASE CONFIGURATION
@@ -116,11 +148,15 @@ export default function App() {
   const [pendingTierUpgrade, setPendingTierUpgrade] = useState(null);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [currentAddress, setCurrentAddress] = useState('');
+  const [appState, setAppState] = useState(AppState.currentState);
+  const [isBackgroundTracking, setIsBackgroundTracking] = useState(false);
 
   const [pendingReferralCode, setPendingReferralCode] = useState(null);
   const isLoadingRef = useRef(false);
   const isInitializedRef = useRef(false);
   const isFirstRender = useRef(true);
+  const isTrackingRef = useRef(false);
+  const routeRef = useRef([]);
 
   // ============================================================
   // DEEP LINK HANDLER
@@ -209,6 +245,88 @@ export default function App() {
       checkSavedReferral();
     }
   }, [user]);
+
+  // ============================================================
+  // APP STATE HANDLER - Keep tracking alive
+  // ============================================================
+  useEffect(() => {
+    const handleAppStateChange = async (nextAppState) => {
+      if (appState.match(/inactive|background/) && nextAppState === 'active') {
+        console.log('App came to foreground');
+        if (isTrackingRef.current) {
+          try {
+            const savedRoute = await AsyncStorage.getItem('@background_route');
+            if (savedRoute) {
+              const bgRoute = JSON.parse(savedRoute);
+              if (bgRoute.length > 0) {
+                setRoute(prev => {
+                  const combined = [...prev, ...bgRoute];
+                  const unique = combined.filter((point, index, self) => 
+                    index === 0 || 
+                    point.latitude !== self[index-1].latitude || 
+                    point.longitude !== self[index-1].longitude
+                  );
+                  routeRef.current = unique;
+                  return unique;
+                });
+                await AsyncStorage.removeItem('@background_route');
+              }
+            }
+          } catch (e) {
+            console.error('Error restoring background route:', e);
+          }
+        }
+      } else if (nextAppState === 'background' && isTrackingRef.current) {
+        console.log('App went to background - starting background tracking');
+        await startBackgroundTracking();
+      }
+      setAppState(nextAppState);
+    };
+
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+
+    return () => {
+      subscription.remove();
+    };
+  }, [appState]);
+
+  // ============================================================
+  // BACKGROUND TRACKING FUNCTIONS
+  // ============================================================
+  const startBackgroundTracking = async () => {
+    try {
+      const { status } = await Location.requestBackgroundPermissionsAsync();
+      if (status !== 'granted') {
+        console.log('Background location permission denied');
+        return;
+      }
+
+      await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
+        accuracy: Location.Accuracy.High,
+        timeInterval: 5000,
+        distanceInterval: 5,
+        foregroundService: {
+          notificationTitle: 'Mileage Tracker',
+          notificationBody: 'Tracking your trip in background...',
+          notificationColor: '#007AFF',
+        },
+      });
+      setIsBackgroundTracking(true);
+      console.log('Background tracking started');
+    } catch (error) {
+      console.error('Error starting background tracking:', error);
+    }
+  };
+
+  const stopBackgroundTracking = async () => {
+    try {
+      await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+      setIsBackgroundTracking(false);
+      console.log('Background tracking stopped');
+    } catch (error) {
+      console.error('Error stopping background tracking:', error);
+    }
+  };
 
   // ============================================================
   // LOAD TRIPS
@@ -619,7 +737,7 @@ export default function App() {
         const expiryDate = status.expiresAt ? new Date(status.expiresAt).toLocaleDateString() : 'Unknown';
         Alert.alert(
           'Cannot Downgrade',
-          'You have an active ${subscriptionTier} subscription until ${expiryDate}.'
+          `You have an active ${subscriptionTier} subscription until ${expiryDate}.`
         );
         return;
       }
@@ -627,7 +745,7 @@ export default function App() {
 
     if (isNewTierPaid) {
       if (subscriptionTier === newTier) {
-        Alert.alert('Already Subscribed', 'You are already on the ${newTier} plan.');
+        Alert.alert('Already Subscribed', `You are already on the ${newTier} plan.`);
         return;
       }
       setPendingTierUpgrade(newTier);
@@ -635,7 +753,7 @@ export default function App() {
     } else {
       const status = await checkSubscriptionStatus(teamId);
       if (status && status.isActive && status.status === 'active') {
-        Alert.alert('Cannot Downgrade', 'You have an active ${subscriptionTier} subscription. Please wait until it expires.');
+        Alert.alert('Cannot Downgrade', `You have an active ${subscriptionTier} subscription. Please wait until it expires.`);
         return;
       }
       await performTierUpgrade(newTier);
@@ -665,7 +783,7 @@ export default function App() {
       setSubscriptionTier(newTier);
       await loadUserData(user);
       setShowSubscriptionModal(false);
-      Alert.alert('Success', 'You are now on the ${newTier} plan!');
+      Alert.alert('Success', `You are now on the ${newTier} plan!`);
     } catch (error) {
       console.error('Error upgrading tier:', error);
       Alert.alert('Error', 'Failed to upgrade subscription: ' + error.message);
@@ -978,6 +1096,8 @@ export default function App() {
 
   const endTrip = async () => {
     if (subscription) subscription.remove();
+    await stopBackgroundTracking();
+    isTrackingRef.current = false;
     setTracking(false);
     setLoadingSummary(true);
 
@@ -1164,17 +1284,28 @@ export default function App() {
       return;
     }
 
+    // Also request background permission
+    const { status: bgStatus } = await Location.requestBackgroundPermissionsAsync();
+    if (bgStatus !== 'granted') {
+      console.log('Background location permission not granted - tracking may stop when app is in background');
+    }
+
     setSelectedPurpose(purposeName);
     setRoute([]);
     setActiveTrip(null);
     setStartTime(new Date());
     setTracking(true);
+    isTrackingRef.current = true;
     setActiveTab('tracking');
 
     const sub = await Location.watchPositionAsync(
       { accuracy: Location.Accuracy.High, distanceInterval: 5 },
       async (loc) => {
-        setRoute((prev) => [...prev, { latitude: loc.coords.latitude, longitude: loc.coords.longitude }]);
+        setRoute((prev) => {
+          const newRoute = [...prev, { latitude: loc.coords.latitude, longitude: loc.coords.longitude }];
+          routeRef.current = newRoute;
+          return newRoute;
+        });
 
         try {
           const [address] = await Location.reverseGeocodeAsync({
@@ -1201,8 +1332,10 @@ export default function App() {
       {
         text: "Discard",
         style: "destructive",
-        onPress: () => {
+        onPress: async () => {
           if (subscription) subscription.remove();
+          await stopBackgroundTracking();
+          isTrackingRef.current = false;
           setSubscription(null);
           setTracking(false);
           setRoute([]);

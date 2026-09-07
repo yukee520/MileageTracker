@@ -13,7 +13,7 @@ import ReferralService from '../services/ReferralService';
 // Option 1: Google Drive APK Link (Recommended for testing)
 // Upload your APK to Google Drive, get the shareable link
 // Make sure the link is set to "Anyone with the link can view"
-const APP_DOWNLOAD_LINK = 'https://drive.google.com/file/d/YOUR_FILE_ID/view?usp=sharing';
+const APP_DOWNLOAD_LINK = 'https://drive.google.com/file/d/1jIIm1TkDqEUEIb8WY26tXfMJeOfAxKuM/view?usp=sharing';
 
 // Option 2: Google Play Store Link (For production)
 // const APP_DOWNLOAD_LINK = 'https://play.google.com/store/apps/details?id=com.yourcompany.mileagetracker';
@@ -52,9 +52,9 @@ const ReferralScreen = ({ user, onClose }) => {
   const loadReferralData = async () => {
     try {
       setLoading(true);
-      
+
       let info = await ReferralService.getReferralCode(user.id);
-      
+
       if (!info || !info.referral_code) {
         setGenerating(true);
         const result = await ReferralService.generateReferralCode(user.id, user.full_name || user.email);
@@ -63,20 +63,20 @@ const ReferralScreen = ({ user, onClose }) => {
         }
         setGenerating(false);
       }
-      
+
       if (info) {
         setReferralInfo(info);
         const available = (info.free_months_earned || 0) - (info.referral_rewards_used || 0);
         setAvailableMonths(available);
-        
+
         // Build referral link with deep link
         const link = `${APP_DEEP_LINK_SCHEME}?code=${info.referral_code}`;
         setFullReferralLink(link);
-        
+
         // Generate short URL
         await generateShortUrl(link);
       }
-      
+
       const history = await ReferralService.getRewardsHistory(user.id);
       setRewardsHistory(history);
     } catch (error) {
@@ -90,13 +90,13 @@ const ReferralScreen = ({ user, onClose }) => {
   const generateShortUrl = async (longUrl) => {
     try {
       setShortening(true);
-      
+
       const response = await fetch(
         `${URL_SHORTENER_API}?format=simple&url=${encodeURIComponent(longUrl)}`
       );
-      
+
       const shortUrlResult = await response.text();
-      
+
       if (shortUrlResult && !shortUrlResult.includes('error')) {
         setShortUrl(shortUrlResult.trim());
         console.log('✅ Short URL generated:', shortUrlResult);
@@ -113,32 +113,29 @@ const ReferralScreen = ({ user, onClose }) => {
   };
 
   const buildShareMessage = (includeCode = true) => {
-    const appLink = shortUrl || fullReferralLink;
-    const downloadLink = APP_DOWNLOAD_LINK;
     const code = referralInfo.referral_code || '';
-    
+    const downloadLink = APP_DOWNLOAD_LINK;
+
     let message = `🚗 Track your mileage easily with Mileage Tracker!\n\n`;
     message += `📱 Download the app (APK):\n${downloadLink}\n\n`;
-    message += `🔗 Referral link (auto-applies code):\n${appLink}\n\n`;
-    
+
     if (includeCode && code) {
-      message += `🎁 Or use referral code: ${code}\n\n`;
+      message += `🎁 Use referral code: ${code}\n\n`;
     }
-    
+
     message += `Referral benefits:\n`;
     message += `• Get 1 free month for each friend who joins and completes their first trip\n`;
     message += `• Unlimited tracking\n`;
     message += `• Excel export reports\n`;
     message += `• Team management\n\n`;
     message += `Start tracking your mileage today! 🎉`;
-    
+
     return message;
   };
 
   const handleShare = async () => {
     try {
       const message = buildShareMessage(true);
-      
       await Share.share({
         message: message,
         title: 'Refer Mileage Tracker'
@@ -151,7 +148,6 @@ const ReferralScreen = ({ user, onClose }) => {
   const handleCopyLink = async () => {
     try {
       const message = buildShareMessage(true);
-      
       await Share.share({
         message: message,
         title: 'Copy Referral Link'
@@ -180,20 +176,19 @@ const ReferralScreen = ({ user, onClose }) => {
       const content = buildShareMessage(true);
       const fileName = `MileageTracker_Referral_${referralInfo.referral_code}.txt`;
       const filePath = `${FileSystem.documentDirectory}${fileName}`;
-      
+
       await FileSystem.writeAsStringAsync(filePath, content);
-      
+
       if (Platform.OS === 'ios' && !(await Sharing.isAvailableAsync())) {
         Alert.alert('Error', 'Sharing is not available on this device');
         return;
       }
-      
+
       await Sharing.shareAsync(filePath, {
         mimeType: 'text/plain',
         dialogTitle: 'Save Referral Link',
         UTI: 'public.plain-text'
       });
-      
     } catch (error) {
       console.error('Save to Drive error:', error);
       Alert.alert('Error', 'Failed to save to Google Drive');
@@ -209,7 +204,7 @@ const ReferralScreen = ({ user, onClose }) => {
     setApplying(true);
     try {
       const result = await ReferralService.applyReferral(applyCode, user.id);
-      
+
       if (result.success) {
         Alert.alert('Success!', 'Referral code applied successfully! You will get a free month after your first trip.');
         setShowApplyModal(false);
@@ -235,6 +230,7 @@ const ReferralScreen = ({ user, onClose }) => {
           text: 'Apply Now',
           onPress: async () => {
             const result = await ReferralService.applyFreeMonth(user.id);
+
             if (result.success) {
               Alert.alert('Success!', 'Your free month has been applied!');
               loadReferralData();
@@ -273,7 +269,7 @@ const ReferralScreen = ({ user, onClose }) => {
             <View style={styles.codeBox}>
               <Text style={styles.codeText}>{referralInfo.referral_code || 'Loading...'}</Text>
             </View>
-            
+
             <View style={styles.linkSection}>
               <Text style={styles.linkLabel}>Your Referral Link:</Text>
               <View style={styles.linkBox}>
@@ -282,7 +278,7 @@ const ReferralScreen = ({ user, onClose }) => {
                 </Text>
               </View>
             </View>
-            
+
             <View style={styles.shareButtonsRow}>
               <TouchableOpacity style={[styles.shareBtn, styles.shareBtnShare]} onPress={handleShare}>
                 <Text style={styles.shareBtnText}>📤 Share</Text>
@@ -302,15 +298,15 @@ const ReferralScreen = ({ user, onClose }) => {
             <Text style={styles.downloadSubText}>
               Download the APK from Google Drive and share with friends!
             </Text>
-            
+
             <TouchableOpacity style={styles.downloadBtn} onPress={handleOpenDownloadLink}>
               <Text style={styles.downloadBtnText}>⬇️ Open Google Drive</Text>
             </TouchableOpacity>
-            
+
             <Text style={styles.downloadLinkText} numberOfLines={1}>
               {APP_DOWNLOAD_LINK}
             </Text>
-            
+
             <View style={styles.driveInfoBox}>
               <Text style={styles.driveInfoText}>
                 💡 Tip: Upload your APK to Google Drive and set sharing to "Anyone with the link can view"
@@ -415,14 +411,14 @@ const ReferralScreen = ({ user, onClose }) => {
                 autoCapitalize="characters"
               />
               <View style={styles.modalActions}>
-                <TouchableOpacity 
-                  style={[styles.modalBtn, styles.cancelBtn]} 
+                <TouchableOpacity
+                  style={[styles.modalBtn, styles.cancelBtn]}
                   onPress={() => setShowApplyModal(false)}
                 >
                   <Text style={styles.cancelBtnText}>Cancel</Text>
                 </TouchableOpacity>
-                <TouchableOpacity 
-                  style={[styles.modalBtn, styles.applyModalBtn]} 
+                <TouchableOpacity
+                  style={[styles.modalBtn, styles.applyModalBtn]}
                   onPress={handleApplyReferral}
                   disabled={applying}
                 >
