@@ -128,7 +128,7 @@ export default function App() {
   const handleDeepLink = async (url) => {
     try {
       console.log('Deep link received:', url);
-      if (url && url.includes('https://drive.google.com/file/d/1jIIm1TkDqEUEIb8WY26tXfMJeOfAxKuM/view?usp=drivesdk')) {
+      if (url && url.includes('https://drive.google.com/drive/folders/1yOV-p50YAiniv5oyhx1Yl2VQTpGIFVij')) {
         const params = new URLSearchParams(url.split('?')[1]);
         const code = params.get('code');
         if (code) {
