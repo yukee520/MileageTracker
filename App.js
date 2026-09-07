@@ -152,6 +152,7 @@ export default function App() {
   const [isBackgroundTracking, setIsBackgroundTracking] = useState(false);
   const [isTrackingActive, setIsTrackingActive] = useState(false);
   const [lastLocationUpdate, setLastLocationUpdate] = useState(null);
+  const [isTripActive, setIsTripActive] = useState(false);
 
   const [pendingReferralCode, setPendingReferralCode] = useState(null);
   const isLoadingRef = useRef(false);
@@ -344,6 +345,61 @@ export default function App() {
       console.error('Error stopping background tracking:', error);
     }
   };
+
+  // Restore tracking state on app start
+  useEffect(() => {
+    const restoreTrackingState = async () => {
+      try {
+        const isTracking = await AsyncStorage.getItem('@is_tracking');
+        if (isTracking === 'true') {
+          const savedRoute = await AsyncStorage.getItem('@background_route');
+          const savedStartTime = await AsyncStorage.getItem('@start_time');
+          const savedPurpose = await AsyncStorage.getItem('@selected_purpose');
+          const savedCategory = await AsyncStorage.getItem('@selected_category');
+          
+          if (savedRoute) {
+            const bgRoute = JSON.parse(savedRoute);
+            if (bgRoute.length > 0) {
+              console.log('Restoring tracking state with', bgRoute.length, 'points');
+              setRoute(bgRoute);
+              routeRef.current = bgRoute;
+              setTracking(true);
+              isTrackingRef.current = true;
+              setIsTrackingActive(true);
+              setIsTripActive(true);
+              if (savedStartTime) setStartTime(new Date(parseInt(savedStartTime)));
+              if (savedPurpose) setSelectedPurpose(savedPurpose);
+              if (savedCategory) setSelectedCategory(savedCategory);
+            }
+          }
+        }
+      } catch (e) {
+        console.error('Error restoring tracking state:', e);
+      }
+    };
+    restoreTrackingState();
+  }, []);
+
+  // Save tracking state when it changes
+  useEffect(() => {
+    const saveTrackingState = async () => {
+      try {
+        await AsyncStorage.setItem('@is_tracking', String(isTrackingRef.current));
+        if (startTime) {
+          await AsyncStorage.setItem('@start_time', String(startTime.getTime()));
+        }
+        if (selectedPurpose) {
+          await AsyncStorage.setItem('@selected_purpose', selectedPurpose);
+        }
+        if (selectedCategory) {
+          await AsyncStorage.setItem('@selected_category', selectedCategory);
+        }
+      } catch (e) {
+        console.error('Error saving tracking state:', e);
+      }
+    };
+    saveTrackingState();
+  }, [tracking, startTime, selectedPurpose, selectedCategory]);
 
   // ============================================================
   // LOAD TRIPS
@@ -1127,6 +1183,7 @@ export default function App() {
       await stopBackgroundTracking();
       isTrackingRef.current = false;
       setIsTrackingActive(false);
+      setIsTripActive(false);
       setTracking(false);
       setLoadingSummary(true);
 
@@ -1175,10 +1232,18 @@ export default function App() {
         await ReferralService.checkAndRewardReferral(user.id);
       }
 
+      // Clear saved tracking state
       await AsyncStorage.removeItem('@is_tracking');
       await AsyncStorage.removeItem('@background_route');
+      await AsyncStorage.removeItem('@start_time');
+      await AsyncStorage.removeItem('@selected_purpose');
+      await AsyncStorage.removeItem('@selected_category');
 
       setLoadingSummary(false);
+      
+      // Switch to home tab to show the completed trip
+      setActiveTab('home');
+      Alert.alert('✅ Trip Completed!', `Your trip of ${distanceKM} km has been saved.`);
     } catch (error) {
       console.error('Error ending trip:', error);
       setLoadingSummary(false);
@@ -1300,6 +1365,19 @@ export default function App() {
   };
 
   const handleInitiateNewTrip = () => {
+    // Check if a trip is already active
+    if (isTripActive || isTrackingRef.current) {
+      Alert.alert(
+        "Trip Already Active",
+        "You already have a trip in progress. Please end the current trip before starting a new one.",
+        [
+          { text: "OK" },
+          { text: "Go to Tracking", onPress: () => setActiveTab('tracking') }
+        ]
+      );
+      return;
+    }
+    
     if (isUsageLimitReached) {
       Alert.alert(
         "Limit Reached",
@@ -1316,6 +1394,15 @@ export default function App() {
 
   const startTripWithPurpose = async (purposeName) => {
     try {
+      // Check if a trip is already active
+      if (isTripActive || isTrackingRef.current) {
+        Alert.alert(
+          "Trip Already Active",
+          "You already have a trip in progress. Please end the current trip before starting a new one."
+        );
+        return;
+      }
+      
       // Request foreground permission
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
@@ -1331,6 +1418,7 @@ export default function App() {
       setTracking(true);
       isTrackingRef.current = true;
       setIsTrackingActive(true);
+      setIsTripActive(true);
       setActiveTab('tracking');
 
       // Start location tracking with reduced frequency to prevent UI freeze
@@ -1414,6 +1502,7 @@ export default function App() {
             await stopBackgroundTracking();
             isTrackingRef.current = false;
             setIsTrackingActive(false);
+            setIsTripActive(false);
             setSubscription(null);
             setTracking(false);
             setRoute([]);
@@ -1423,6 +1512,9 @@ export default function App() {
             setActiveTab('home');
             await AsyncStorage.removeItem('@is_tracking');
             await AsyncStorage.removeItem('@background_route');
+            await AsyncStorage.removeItem('@start_time');
+            await AsyncStorage.removeItem('@selected_purpose');
+            await AsyncStorage.removeItem('@selected_category');
             console.log('Trip discarded successfully');
           } catch (error) {
             console.error('Error discarding trip:', error);
@@ -1867,6 +1959,20 @@ export default function App() {
   return (
     <View style={styles.container}>
       <View style={{ flex: 1 }}>
+        {/* FLOATING END TRIP BUTTON - Always visible when tracking */}
+        {isTripActive && (
+          <View style={styles.floatingEndTripContainer}>
+            <TouchableOpacity 
+              style={styles.floatingEndTripBtn} 
+              onPress={endTrip}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.floatingEndTripText}>🏁 END TRIP</Text>
+              <Text style={styles.floatingEndTripSub}>Points: {route.length}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
         {/* HOME TAB */}
         {activeTab === 'home' && (
           <ScrollView style={styles.content}>
@@ -1895,17 +2001,20 @@ export default function App() {
               {isUsageLimitReached && <Text style={styles.usageWarningText}>⚠️ Usage limit reached. Upgrade to record more trips!</Text>}
             </View>
 
-            {isTrackingActive && (
+            {isTripActive && (
               <View style={styles.trackingStatusCard}>
-                <Text style={styles.trackingStatusText}>🔴 Tracking in progress...</Text>
-                <Text style={styles.trackingStatusSub}>Trip will continue in background</Text>
+                <Text style={styles.trackingStatusText}>🔴 TRIP IN PROGRESS</Text>
+                <Text style={styles.trackingStatusSub}>Tap "END TRIP" button at bottom to finish</Text>
+                <Text style={styles.trackingStatusPoints}>📍 Points tracked: {route.length}</Text>
               </View>
             )}
 
             <TouchableOpacity
-              style={[styles.startTripBtn, isUsageLimitReached && { backgroundColor: '#6c757d' }]}
+              style={[styles.startTripBtn, (isUsageLimitReached || isTripActive) && { backgroundColor: '#6c757d' }]}
               onPress={handleInitiateNewTrip}>
-              <Text style={styles.startTripBtnText}>🚗 START NEW TRIP</Text>
+              <Text style={styles.startTripBtnText}>
+                {isTripActive ? '🔴 TRIP IN PROGRESS' : '🚗 START NEW TRIP'}
+              </Text>
             </TouchableOpacity>
           </ScrollView>
         )}
@@ -2164,8 +2273,8 @@ export default function App() {
             <Text style={styles.header}>Trip Tracking</Text>
             
             <View style={styles.trackingStatusCard}>
-              <Text style={styles.trackingStatusText}>🔴 Currently Tracking</Text>
-              <Text style={styles.trackingStatusSub}>Trip continues even if you close the app</Text>
+              <Text style={styles.trackingStatusText}>🔴 TRIP IN PROGRESS</Text>
+              <Text style={styles.trackingStatusSub}>Tracking your route...</Text>
               <Text style={styles.trackingStatusPoints}>📍 Points tracked: {route.length}</Text>
             </View>
 
@@ -2551,6 +2660,39 @@ const styles = StyleSheet.create({
   trackingStatusText: { fontSize: 14, fontWeight: 'bold', color: '#856404', textAlign: 'center' },
   trackingStatusSub: { fontSize: 12, color: '#856404', textAlign: 'center', marginTop: 2 },
   trackingStatusPoints: { fontSize: 11, color: '#856404', textAlign: 'center', marginTop: 4 },
+  floatingEndTripContainer: {
+    position: 'absolute',
+    bottom: 70,
+    left: 20,
+    right: 20,
+    zIndex: 999,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+  },
+  floatingEndTripBtn: {
+    backgroundColor: '#dc3545',
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  floatingEndTripText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    letterSpacing: 1,
+  },
+  floatingEndTripSub: {
+    color: '#fff',
+    fontSize: 12,
+    marginTop: 2,
+    opacity: 0.9,
+  },
   dropdownContainer: { marginBottom: 15 },
   filterLabel: { fontSize: 12, color: '#888', fontWeight: 'bold', marginBottom: 6 },
   dropdownRow: { flexDirection: 'row', justifyContent: 'space-between' },
