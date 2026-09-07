@@ -150,17 +150,18 @@ export default function App() {                                          const [
                                                                          // ============================================================
   // DEEP LINK EFFECTS
   // ============================================================
-  useEffect(() => {
+    useEffect(() => {
     // Handle initial URL when app starts
     const handleInitialUrl = async () => {
       try {
-        const url = await Linking.getInitialURL();                             if (url) {
+        const url = await Linking.getInitialURL();
+        if (url) {
           await handleDeepLink(url);
         }
       } catch (error) {
         console.error('Error getting initial URL:', error);
       }
-    };                                                                 
+    };
     handleInitialUrl();
 
     // Listen for deep links while app is running
@@ -171,7 +172,8 @@ export default function App() {                                          const [
     return () => {
       subscription.remove();
     };
-  }, []);                                                              
+  }, []);
+                                                              
   // Check for saved referral code on login                              useEffect(() => {                                                        const checkSavedReferral = async () => {
       if (user?.id) {
         const savedCode = await AsyncStorage.getItem('@referral_code');
