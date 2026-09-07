@@ -174,18 +174,21 @@ export default function App() {                                          const [
     };
   }, []);
                                                               
-  // Check for saved referral code on login                              useEffect(() => {                                                        const checkSavedReferral = async () => {
-      if (user?.id) {
-        const savedCode = await AsyncStorage.getItem('@referral_code');
-        if (savedCode) {                                                         await applyReferralCode(savedCode);
-        }
-      }
-    };
-
+// Check for saved referral code on login
+useEffect(() => {
+  const checkSavedReferral = async () => {
     if (user?.id) {
-      checkSavedReferral();
+      const savedCode = await AsyncStorage.getItem('@referral_code');
+      if (savedCode) {
+        await applyReferralCode(savedCode);
+      }
     }
-  }, [user]);
+  };
+
+  if (user?.id) {
+    checkSavedReferral();
+  }
+}, [user]);
 
   // ============================================================
   // LOAD TRIPS
