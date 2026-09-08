@@ -270,14 +270,11 @@ const ReferralScreen = ({ user, onClose }) => {
               <Text style={styles.codeText}>{referralInfo.referral_code || 'Loading...'}</Text>
             </View>
 
-            <View style={styles.linkSection}>
-              <Text style={styles.linkLabel}>Your Referral Link:</Text>
-              <View style={styles.linkBox}>
-                <Text style={styles.linkText} numberOfLines={1}>
-                  {shortening ? 'Generating short link...' : shortUrl || fullReferralLink}
-                </Text>
-              </View>
-            </View>
+            // Add this near the stats section
+<View style={[styles.statCard, { backgroundColor: '#fce4ec' }]}>
+  <Text style={[styles.statNumber, { color: '#c62828' }]}>12</Text>
+  <Text style={styles.statLabel}>Max Free Months</Text>
+</View>
 
             <View style={styles.shareButtonsRow}>
               <TouchableOpacity style={[styles.shareBtn, styles.shareBtnShare]} onPress={handleShare}>
