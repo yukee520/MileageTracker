@@ -1,3 +1,26 @@
+#!/bin/bash
+
+echo "========================================="
+echo "  FIXING GROUP PAYMENT FLOW"
+echo "========================================="
+echo ""
+
+# ============================================
+# 1. BACKUP EXISTING FILES
+# ============================================
+echo "📦 Creating backups..."
+cp components/PaymentModal.js components/PaymentModal.js.backup 2>/dev/null
+cp services/ToyyibPayService.js services/ToyyibPayService.js.backup 2>/dev/null
+cp App.js App.js.backup 2>/dev/null
+echo "✅ Backups created"
+echo ""
+
+# ============================================
+# 2. UPDATE PAYMENT MODAL
+# ============================================
+echo "📝 Updating PaymentModal.js..."
+
+cat > components/PaymentModal.js << 'MODALEOF'
 import React, { useState, useRef, useEffect } from 'react';
 import {
   StyleSheet,
@@ -704,3 +727,499 @@ const styles = StyleSheet.create({
 });
 
 export default PaymentModal;
+MODALEOF
+
+echo "✅ PaymentModal.js updated with member count display"
+echo ""
+
+# ============================================
+# 3. UPDATE TOYYIBPAY SERVICE
+# ============================================
+echo "📝 Updating ToyyibPayService.js..."
+
+cat > services/ToyyibPayService.js << 'SERVICEEOF'
+import axios from 'axios';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { createClient } from '@supabase/supabase-js';
+import { TOYYIBPAY_CONFIG } from '../paymentConfig';
+
+// Supabase configuration
+const SUPABASE_URL = 'https://dkpjicqepexhgbrzzreo.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_7CXIRyhWhmsQfRfj9dDhWw_Z2efV6fx';
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+class ToyyibPayService {
+  constructor() {
+    this.apiUrl = TOYYIBPAY_CONFIG.toyyibpayApiUrl;
+    this.secretKey = TOYYIBPAY_CONFIG.userSecretKey;
+    this.categoryCode = TOYYIBPAY_CONFIG.categoryCode;
+  }
+
+  generateReference() {
+    const timestamp = Date.now().toString(36);
+    const random = Math.random().toString(36).substring(2, 8);
+    return `TRIP-${timestamp}-${random}`.toUpperCase();
+  }
+
+  truncateBillName(name) {
+    const clean = name.replace(/[^a-zA-Z0-9 ]/g, '').trim();
+    return clean.substring(0, 30);
+  }
+
+  // ============================================================
+  // CREATE BILL WITH MEMBER COUNT
+  // ============================================================
+  async createBill(tier, userData) {
+    try {
+      console.log('📝 Creating ToyyibPay bill for tier:', tier);
+      console.log('👤 User data:', userData);
+
+      // Check if this is a group plan
+      const isGroup = tier === 'Group Basic' || tier === 'Group Pro';
+      
+      // Get member count
+      let memberCount = 1;
+      let totalAmount = 0;
+      let pricePerSeat = 0;
+
+      if (isGroup && userData.teamId) {
+        // Get actual member count from database
+        const { count, error } = await supabase
+          .from('profiles')
+          .select('id', { count: 'exact', head: true })
+          .eq('team_id', userData.teamId);
+
+        if (error) {
+          console.error('Error getting member count:', error);
+          memberCount = 1;
+        } else {
+          memberCount = count || 1;
+        }
+
+        pricePerSeat = tier === 'Group Basic' ? 7 : 12;
+        totalAmount = memberCount * pricePerSeat;
+      } else {
+        // Personal plan
+        const amount = TOYYIBPAY_CONFIG.tierAmounts[tier];
+        if (!amount || amount === 0) {
+          throw new Error('Invalid tier or free tier selected');
+        }
+        totalAmount = amount / 100;
+        pricePerSeat = totalAmount;
+      }
+
+      console.log(`📊 Member count: ${memberCount}, Total amount: RM${totalAmount}`);
+
+      const amountInCents = totalAmount * 100;
+      const reference = this.generateReference();
+      const displayMonth = new Date().toLocaleString('default', {
+        month: 'short',
+        year: 'numeric'
+      });
+
+      const billName = isGroup 
+        ? `Mileage Tracker ${tier} (${memberCount} seats) ${displayMonth}`
+        : `Mileage Tracker ${tier} ${displayMonth}`;
+      
+      const truncatedBillName = this.truncateBillName(billName);
+
+      console.log('📝 Bill name:', truncatedBillName);
+
+      const billData = {
+        userSecretKey: this.secretKey,
+        categoryCode: this.categoryCode,
+        billName: truncatedBillName,
+        billDescription: isGroup 
+          ? `${tier} plan for ${memberCount} team members (RM${pricePerSeat}/seat × ${memberCount})`
+          : `${tier} plan subscription`,
+        billPriceSetting: 1,
+        billPayorInfo: 1,
+        billAmount: amountInCents.toString(),
+        billReturnUrl: TOYYIBPAY_CONFIG.returnUrlScheme,
+        billCallbackUrl: TOYYIBPAY_CONFIG.webhookUrl,
+        billExternalReferenceNo: reference.substring(0, 20),
+        billTo: userData.driverName || 'Customer',
+        billEmail: userData.email || 'customer@email.com',
+        billPhone: '0123456789',
+        billSplitPayment: 0,
+        billPaymentChannel: '0',
+        billContentType: 'application/json'
+      };
+
+      console.log('📤 Sending to ToyyibPay...');
+
+      const response = await axios.post(
+        `${this.apiUrl}/createBill`,
+        billData,
+        {
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Accept': 'application/json'
+          },
+          timeout: 30000
+        }
+      );
+
+      console.log('📥 ToyyibPay response:', response.data);
+
+      if (response.data && response.data.status === 'error') {
+        return {
+          success: false,
+          error: response.data.msg || 'Payment service error'
+        };
+      }
+
+      if (response.data && Array.isArray(response.data) && response.data.length > 0) {
+        const bill = response.data[0];
+        if (bill.BillCode) {
+          const paymentContext = {
+            tier,
+            userId: userData.userId,
+            teamId: userData.teamId,
+            email: userData.email,
+            driverName: userData.driverName,
+            reference: reference,
+            billCode: bill.BillCode,
+            amount: totalAmount,
+            memberCount: memberCount,
+            isGroup: isGroup,
+            timestamp: new Date().toISOString()
+          };
+
+          await AsyncStorage.setItem(`@payment_${reference}`, JSON.stringify(paymentContext));
+
+          // Save transaction
+          await this.saveTransaction(
+            userData.userId,
+            userData.teamId,
+            tier,
+            totalAmount,
+            bill.BillCode,
+            reference,
+            memberCount
+          );
+
+          return {
+            success: true,
+            paymentUrl: `https://toyyibpay.com/${bill.BillCode}`,
+            billCode: bill.BillCode,
+            reference: reference,
+            amount: totalAmount,
+            memberCount: memberCount
+          };
+        }
+      }
+
+      throw new Error('Unexpected response from ToyyibPay');
+
+    } catch (error) {
+      console.error('❌ ToyyibPay error:', error);
+      let errorMessage = error.message || 'Failed to create payment';
+      if (error.response?.data?.msg) {
+        errorMessage = error.response.data.msg;
+      }
+      return {
+        success: false,
+        error: errorMessage
+      };
+    }
+  }
+
+  // ============================================================
+  // SAVE TRANSACTION WITH MEMBER COUNT
+  // ============================================================
+  async saveTransaction(userId, teamId, tier, amount, billCode, reference, memberCount) {
+    try {
+      console.log('💾 Saving transaction to Supabase...');
+      
+      const { data, error } = await supabase
+        .from('transactions')
+        .insert({
+          user_id: userId,
+          team_id: teamId,
+          tier: tier,
+          amount: amount,
+          transaction_id: billCode,
+          reference: reference,
+          bill_code: billCode,
+          status: 'pending',
+          payment_method: 'toyyibpay',
+          member_count: memberCount || 1
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error('❌ Supabase insert error:', error);
+        return null;
+      }
+
+      console.log('✅ Transaction saved:', data);
+      return data;
+    } catch (error) {
+      console.error('❌ Error saving transaction:', error);
+      return null;
+    }
+  }
+
+  // ============================================================
+  // COMPLETE PAYMENT
+  // ============================================================
+  async completePayment(billCode, reference, transactionId) {
+    try {
+      console.log('✅ Completing payment for bill:', billCode);
+      console.log('📝 Reference:', reference);
+
+      // Update transaction status in Supabase
+      const { data: txData, error: txError } = await supabase
+        .from('transactions')
+        .update({
+          status: 'completed',
+          completed_at: new Date().toISOString(),
+          transaction_id: transactionId || billCode
+        })
+        .eq('bill_code', billCode)
+        .select()
+        .single();
+
+      if (txError) {
+        console.error('❌ Error updating transaction:', txError);
+        const { data: findTx } = await supabase
+          .from('transactions')
+          .select('*')
+          .eq('bill_code', billCode)
+          .single();
+
+        if (findTx) {
+          console.log('✅ Found transaction:', findTx);
+          await this.activateSubscription(findTx.team_id, findTx.tier, findTx.id);
+          return {
+            success: true,
+            status: 'completed',
+            transactionDetails: findTx
+          };
+        }
+        return {
+          success: false,
+          status: 'error',
+          message: 'Transaction not found'
+        };
+      }
+
+      console.log('✅ Transaction updated:', txData);
+
+      await this.activateSubscription(txData.team_id, txData.tier, txData.id);
+
+      await AsyncStorage.removeItem(`@payment_${reference}`);
+
+      return {
+        success: true,
+        status: 'completed',
+        transactionDetails: txData
+      };
+
+    } catch (error) {
+      console.error('❌ Error completing payment:', error);
+      return {
+        success: false,
+        status: 'error',
+        message: error.message || 'Failed to complete payment'
+      };
+    }
+  }
+
+  // ============================================================
+  // ACTIVATE SUBSCRIPTION
+  // ============================================================
+  async activateSubscription(teamId, tier, transactionId) {
+    try {
+      console.log('🚀 Activating subscription for team:', teamId, 'tier:', tier);
+
+      const tierMap = {
+        'Personal Free': 'personal_free',
+        'Personal Basic': 'personal_basic',
+        'Personal Pro': 'personal_pro',
+        'Group Basic': 'team_basic',
+        'Group Pro': 'team_pro'
+      };
+
+      const limitMap = {
+        'Personal Free': 30,
+        'Personal Basic': 100,
+        'Personal Pro': 99999,
+        'Group Basic': 100,
+        'Group Pro': 99999
+      };
+
+      const maxMembersMap = {
+        'Personal Free': 1,
+        'Personal Basic': 1,
+        'Personal Pro': 1,
+        'Group Basic': 10,
+        'Group Pro': 25
+      };
+
+      const { data, error } = await supabase
+        .from('teams')
+        .update({
+          subscription_tier: tierMap[tier] || 'personal_free',
+          monthly_trip_limit: limitMap[tier] || 30,
+          max_members: maxMembersMap[tier] || 1,
+          payment_status: 'active',
+          last_payment_date: new Date().toISOString(),
+          subscription_end_date: new Date(new Date().setMonth(new Date().getMonth() + 1)).toISOString()
+        })
+        .eq('id', teamId)
+        .select();
+
+      if (error) {
+        console.error('❌ Error updating team:', error);
+        return false;
+      }
+
+      console.log('✅ Subscription activated:', data);
+      return true;
+    } catch (error) {
+      console.error('❌ Error activating subscription:', error);
+      return false;
+    }
+  }
+
+  // ============================================================
+  // CHECK SUBSCRIPTION STATUS
+  // ============================================================
+  async checkSubscriptionStatus(teamId) {
+    try {
+      const { data, error } = await supabase
+        .from('teams')
+        .select('subscription_tier, monthly_trip_limit, payment_status, last_payment_date, subscription_end_date')
+        .eq('id', teamId)
+        .single();
+
+      if (error) throw error;
+
+      const tierMap = {
+        'personal_free': 'Personal Free',
+        'personal_basic': 'Personal Basic',
+        'personal_pro': 'Personal Pro',
+        'team_basic': 'Group Basic',
+        'team_pro': 'Group Pro'
+      };
+
+      return {
+        tier: tierMap[data.subscription_tier] || 'Personal Free',
+        limit: data.monthly_trip_limit || 30,
+        status: data.payment_status || 'free',
+        lastPayment: data.last_payment_date,
+        expiresAt: data.subscription_end_date,
+        isActive: data.payment_status === 'active' || data.subscription_tier === 'personal_free'
+      };
+    } catch (error) {
+      console.error('❌ Error checking subscription:', error);
+      return null;
+    }
+  }
+
+  // ============================================================
+  // GET TRANSACTION HISTORY
+  // ============================================================
+  async getTransactionHistory(userId) {
+    try {
+      const { data, error } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('❌ Error getting transactions:', error);
+      return [];
+    }
+  }
+}
+
+export default new ToyyibPayService();
+SERVICEEOF
+
+echo "✅ ToyyibPayService.js updated with member count support"
+echo ""
+
+# ============================================
+# 4. CREATE SQL MIGRATION
+# ============================================
+echo "🗄️  Creating SQL migration file..."
+
+cat > create_transactions_table.sql << 'SQLEOF'
+-- ============================================================
+-- CREATE TRANSACTIONS TABLE
+-- ============================================================
+-- Run this in Supabase SQL Editor
+
+CREATE TABLE IF NOT EXISTS transactions (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID REFERENCES profiles(id),
+  team_id UUID REFERENCES teams(id),
+  tier TEXT NOT NULL,
+  amount DECIMAL(10,2) NOT NULL,
+  transaction_id TEXT,
+  reference TEXT,
+  bill_code TEXT UNIQUE,
+  status TEXT DEFAULT 'pending',
+  payment_method TEXT DEFAULT 'toyyibpay',
+  member_count INTEGER DEFAULT 1,
+  created_at TIMESTAMP DEFAULT NOW(),
+  completed_at TIMESTAMP
+);
+
+-- Create indexes for performance
+CREATE INDEX IF NOT EXISTS idx_transactions_user_id ON transactions(user_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_team_id ON transactions(team_id);
+CREATE INDEX IF NOT EXISTS idx_transactions_bill_code ON transactions(bill_code);
+CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);
+
+-- Add comment for documentation
+COMMENT ON TABLE transactions IS 'Stores payment transaction records for ToyyibPay';
+COMMENT ON COLUMN transactions.member_count IS 'Number of team members covered by this transaction (for group plans)';
+SQLEOF
+
+echo "✅ SQL migration created: create_transactions_table.sql"
+echo ""
+
+# ============================================
+# 5. SUMMARY
+# ============================================
+echo "========================================="
+echo "  ✅ FIX COMPLETE"
+echo "========================================="
+echo ""
+echo "📝 Files Updated:"
+echo "  1. components/PaymentModal.js"
+echo "  2. services/ToyyibPayService.js"
+echo "  3. create_transactions_table.sql (new)"
+echo ""
+echo "📋 What Changed:"
+echo "  ✅ PaymentModal now shows member count"
+echo "  ✅ Member breakdown displayed for group plans"
+echo "  ✅ Total amount calculation includes all members"
+echo "  ✅ Transaction table includes member_count column"
+echo ""
+echo "🚀 Next Steps:"
+echo ""
+echo "1. Run the SQL in Supabase SQL Editor:"
+echo "   cat create_transactions_table.sql"
+echo "   Copy and paste into Supabase SQL Editor"
+echo ""
+echo "2. Test the flow:"
+echo "   - Have a team with 3 members"
+echo "   - Admin upgrades to Group Basic"
+echo "   - Should show: RM7/seat × 3 = RM21/month"
+echo ""
+echo "3. Push to GitHub:"
+echo "   git add ."
+echo "   git commit -m 'Fix: Group payment with member count'"
+echo "   git push origin main"
+echo ""
+echo "========================================="
+

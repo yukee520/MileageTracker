@@ -14,14 +14,8 @@ import {
   Platform
 } from 'react-native';
 import { WebView } from 'react-native-webview';
-import { createClient } from '@supabase/supabase-js';
 import ToyyibPayService from '../services/ToyyibPayService';
 import { TOYYIBPAY_CONFIG } from '../paymentConfig';
-
-// Supabase configuration
-const SUPABASE_URL = 'https://dkpjicqepexhgbrzzreo.supabase.co';
-const SUPABASE_ANON_KEY = 'sb_publishable_7CXIRyhWhmsQfRfj9dDhWw_Z2efV6fx';
-const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const PaymentModal = ({
   visible,
@@ -40,41 +34,12 @@ const PaymentModal = ({
   const [paymentStatus, setPaymentStatus] = useState('init');
   const [errorMessage, setErrorMessage] = useState('');
   const [verifying, setVerifying] = useState(false);
-  const [memberCount, setMemberCount] = useState(1);
-  const [teamMembers, setTeamMembers] = useState([]);
   const webViewRef = useRef(null);
   const appStateRef = useRef(AppState.currentState);
   const verificationAttemptedRef = useRef(false);
   const isProcessingReturn = useRef(false);
   const [returnUrlDetected, setReturnUrlDetected] = useState(false);
 
-  // ============================================================
-  // GET MEMBER COUNT
-  // ============================================================
-  const getMemberCount = async () => {
-    try {
-      if (!userData?.teamId) return 1;
-      
-      const { data, error, count } = await supabase
-        .from('profiles')
-        .select('id, full_name, email, role', { count: 'exact' })
-        .eq('team_id', userData.teamId);
-
-      if (error) throw error;
-      
-      setTeamMembers(data || []);
-      const count_num = data ? data.length : 1;
-      setMemberCount(count_num);
-      return count_num;
-    } catch (error) {
-      console.error('Error getting member count:', error);
-      return 1;
-    }
-  };
-
-  // ============================================================
-  // EFFECTS
-  // ============================================================
   useEffect(() => {
     if (visible) {
       setPaymentStatus('init');
@@ -87,16 +52,13 @@ const PaymentModal = ({
       setReturnUrlDetected(false);
       verificationAttemptedRef.current = false;
       isProcessingReturn.current = false;
-      
-      // Get member count when modal opens
-      getMemberCount();
     }
   }, [visible]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', handleAppStateChange);
     const linkingSubscription = Linking.addEventListener('url', handleDeepLink);
-
+    
     return () => {
       subscription.remove();
       linkingSubscription.remove();
@@ -117,49 +79,47 @@ const PaymentModal = ({
     appStateRef.current = nextAppState;
   };
 
-  // ============================================================
-  // DEEP LINK HANDLER
-  // ============================================================
   const handleDeepLink = async (event) => {
     const { url } = event;
     console.log('🔗 Deep link received:', url);
-
+    
     if (url.includes('mileagetracker://payment/return')) {
       console.log('🔙 Deep link return detected');
-
+      
       if (isProcessingReturn.current) {
         console.log('⏳ Already processing return, skipping...');
         return;
       }
       isProcessingReturn.current = true;
       setReturnUrlDetected(true);
-
+      
+      // Force close WebView
       setShowWebView(false);
-
+      
       const params = new URLSearchParams(url.split('?')[1]);
       const status = params.get('status_id');
       const billcode = params.get('billcode');
       const orderId = params.get('order_id');
       const transactionId = params.get('transaction_id');
-
+      
       console.log('📊 Payment return params:', { status, billcode, orderId, transactionId });
-
+      
       if (status === '1' && billcode) {
         console.log('✅ Payment successful, completing...');
         setBillCode(billcode);
         setVerifying(true);
         setPaymentStatus('verifying');
-
+        
         try {
           const result = await ToyyibPayService.completePayment(billcode, orderId, transactionId);
-
+          
           if (result.success && result.status === 'completed') {
             console.log('✅ Payment completed successfully!');
             setPaymentStatus('completed');
-
+            
             Alert.alert(
               'Payment Successful 🎉',
-              `Your ${tier} subscription has been activated for ${memberCount} team members!`,
+              `Your ${tier} subscription has been activated!`,
               [
                 {
                   text: 'OK',
@@ -226,77 +186,39 @@ const PaymentModal = ({
     }
   };
 
-  // ============================================================
-  // GET TIER DETAILS
-  // ============================================================
   const getTierDetails = () => {
-    const pricePerSeat = tier === 'Group Basic' ? 7 : (tier === 'Group Pro' ? 12 : 0);
-    const totalAmount = memberCount * pricePerSeat;
-    
     const details = {
       'Personal Basic': {
         features: ['100 trips per month', 'Excel export included', 'RM4.99/month'],
-        color: '#007AFF',
-        price: 4.99,
-        isGroup: false
+        color: '#007AFF'
       },
       'Personal Pro': {
         features: ['Unlimited trips', 'Excel export included', 'RM9.99/month'],
-        color: '#28A745',
-        price: 9.99,
-        isGroup: false
+        color: '#28A745'
       },
       'Group Basic': {
-        features: [
-          '100 trips per month per member',
-          `Up to 10 team seats (${memberCount} current)`,
-          'Excel export included',
-          `RM7/seat × ${memberCount} = RM${totalAmount.toFixed(2)}/month`
-        ],
-        color: '#FF6B35',
-        price: 7,
-        isGroup: true,
-        totalAmount: totalAmount,
-        memberCount: memberCount
+        features: ['100 trips per month', 'Up to 10 team seats', 'Excel export included', 'RM7/seat/month'],
+        color: '#FF6B35'
       },
       'Group Pro': {
-        features: [
-          'Unlimited trips per member',
-          `Up to 25 team seats (${memberCount} current)`,
-          'Excel export included',
-          `RM12/seat × ${memberCount} = RM${totalAmount.toFixed(2)}/month`
-        ],
-        color: '#6F42C1',
-        price: 12,
-        isGroup: true,
-        totalAmount: totalAmount,
-        memberCount: memberCount
+        features: ['Unlimited trips', 'Up to 25 team seats', 'Excel export included', 'RM12/seat/month'],
+        color: '#6F42C1'
       }
     };
     return details[tier] || details['Personal Basic'];
   };
 
-  // ============================================================
-  // INITIATE PAYMENT
-  // ============================================================
   const initiatePayment = async () => {
     try {
       setLoading(true);
       setPaymentStatus('creating');
-
+      
       if (!userData || !userData.userId) {
         throw new Error('User information is missing');
       }
 
-      // For group plans, include member count in userData
-      const paymentUserData = {
-        ...userData,
-        memberCount: memberCount,
-        teamMembers: teamMembers
-      };
-
-      const result = await ToyyibPayService.createBill(tier, paymentUserData);
-
+      const result = await ToyyibPayService.createBill(tier, userData);
+      
       if (result.success) {
         console.log('✅ Bill created:', result);
         setPaymentUrl(result.paymentUrl);
@@ -320,42 +242,45 @@ const PaymentModal = ({
     }
   };
 
-  // ============================================================
-  // WEBVIEW NAVIGATION HANDLER
-  // ============================================================
   const handleWebViewNavigation = (event) => {
     const { url } = event;
     console.log('🌐 Navigation:', url);
-
+    
+    // Check for return URL
     if (url.includes('mileagetracker://payment/return')) {
       console.log('🔙 Return URL detected in WebView');
+      // Close WebView immediately
       setShowWebView(false);
-
+      
+      // Let the deep link handler process it (or process here as fallback)
       if (!isProcessingReturn.current) {
         const params = new URLSearchParams(url.split('?')[1]);
         const status = params.get('status_id');
         const billcode = params.get('billcode');
         const orderId = params.get('order_id');
         const transactionId = params.get('transaction_id');
-
+        
         if (status === '1' && billcode) {
           setBillCode(billcode);
+          // Process payment directly since deep link might not work
           processPaymentCompletion(billcode, orderId, transactionId);
         }
       }
-      return false;
+      return false; // Stop navigation
     }
-
+    
+    // Check for direct completion from ToyyibPay
     if (url.includes('toyyibpay.com') && url.includes('status=1')) {
       console.log('✅ Payment completed');
-      return true;
+      return true; // Let it navigate naturally
     }
-
+    
+    // Handle cancellation
     if (url.includes('error') || url.includes('cancel') || url.includes('status=0')) {
       console.log('❌ Payment cancelled');
       setShowWebView(false);
       setPaymentStatus('cancelled');
-
+      
       Alert.alert(
         'Payment Cancelled',
         'The payment process was cancelled.',
@@ -383,29 +308,27 @@ const PaymentModal = ({
       );
       return false;
     }
-
+    
     return true;
   };
 
-  // ============================================================
-  // PROCESS PAYMENT COMPLETION
-  // ============================================================
+  // Process payment completion (fallback if deep link doesn't work)
   const processPaymentCompletion = async (billcode, orderId, transactionId) => {
     if (isProcessingReturn.current) return;
     isProcessingReturn.current = true;
     setVerifying(true);
     setPaymentStatus('verifying');
-
+    
     try {
       const result = await ToyyibPayService.completePayment(billcode, orderId, transactionId);
-
+      
       if (result.success && result.status === 'completed') {
         console.log('✅ Payment completed successfully!');
         setPaymentStatus('completed');
-
+        
         Alert.alert(
           'Payment Successful 🎉',
-          `Your ${tier} subscription has been activated for ${memberCount} team members!`,
+          `Your ${tier} subscription has been activated!`,
           [
             {
               text: 'OK',
@@ -452,9 +375,6 @@ const PaymentModal = ({
     }
   };
 
-  // ============================================================
-  // HANDLE CLOSE
-  // ============================================================
   const handleClose = () => {
     if (showWebView && paymentStatus !== 'completed') {
       Alert.alert(
@@ -478,18 +398,9 @@ const PaymentModal = ({
     }
   };
 
-  // ============================================================
-  // RENDER PAYMENT DETAILS
-  // ============================================================
   const renderPaymentDetails = () => {
     const details = getTierDetails();
-    const isGroup = details.isGroup || false;
-    
-    // Get display amount
-    let displayAmount = TOYYIBPAY_CONFIG.tierDisplayAmounts[tier] || 'RM0.00';
-    if (isGroup && details.totalAmount) {
-      displayAmount = `RM${details.totalAmount.toFixed(2)}/month`;
-    }
+    const amount = TOYYIBPAY_CONFIG.tierDisplayAmounts[tier] || 'RM0.00';
 
     return (
       <SafeAreaView style={styles.container}>
@@ -505,29 +416,11 @@ const PaymentModal = ({
             <View style={[styles.planBadge, { backgroundColor: details.color }]}>
               <Text style={styles.planBadgeText}>{tier}</Text>
             </View>
-
+            
             <View style={styles.amountContainer}>
-              <Text style={styles.amountLabel}>
-                {isGroup ? `Total Amount (${memberCount} members):` : 'Total Amount:'}
-              </Text>
-              <Text style={[styles.amountValue, { color: details.color }]}>
-                {displayAmount}
-              </Text>
+              <Text style={styles.amountLabel}>Total Amount:</Text>
+              <Text style={[styles.amountValue, { color: details.color }]}>{amount}</Text>
             </View>
-
-            {isGroup && memberCount > 0 && (
-              <View style={styles.memberBreakdown}>
-                <Text style={styles.breakdownTitle}>👥 Team Members ({memberCount}):</Text>
-                {teamMembers.slice(0, 5).map((member, index) => (
-                  <Text key={index} style={styles.breakdownText}>
-                    • {member.full_name || member.email || 'Member'} {member.role === 'admin' ? '(Admin)' : ''}
-                  </Text>
-                ))}
-                {teamMembers.length > 5 && (
-                  <Text style={styles.breakdownMore}>+ {teamMembers.length - 5} more members</Text>
-                )}
-              </View>
-            )}
 
             <View style={styles.featuresContainer}>
               <Text style={styles.featuresTitle}>What you get:</Text>
@@ -545,9 +438,6 @@ const PaymentModal = ({
             <Text style={styles.infoText}>• Securely processed via ToyyibPay</Text>
             <Text style={styles.infoText}>• Receipt will be sent to: {userData?.email || 'your email'}</Text>
             <Text style={styles.infoText}>• Instant subscription activation</Text>
-            {isGroup && (
-              <Text style={styles.infoText}>• Covers all {memberCount} team members</Text>
-            )}
           </View>
 
           {errorMessage ? (
@@ -574,9 +464,7 @@ const PaymentModal = ({
                     <Text style={styles.buttonText}> Creating payment...</Text>
                   </View>
                 ) : (
-                  <Text style={styles.buttonText}>
-                    {isGroup ? `🔒 Pay RM${details.totalAmount?.toFixed(2) || '0'} for ${memberCount} members` : '🔒 Proceed to Payment'}
-                  </Text>
+                  <Text style={styles.buttonText}>🔒 Proceed to Payment</Text>
                 )}
               </TouchableOpacity>
 
@@ -592,9 +480,6 @@ const PaymentModal = ({
     );
   };
 
-  // ============================================================
-  // RENDER
-  // ============================================================
   return (
     <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={handleClose}>
       {showWebView ? (
@@ -613,23 +498,25 @@ const PaymentModal = ({
             onNavigationStateChange={handleWebViewNavigation}
             onShouldStartLoadWithRequest={(event) => {
               const { url } = event;
+              // Intercept return URL and handle it
               if (url.includes('mileagetracker://payment/return')) {
                 console.log('🔙 Intercepted return URL in shouldStartLoad');
                 setShowWebView(false);
-
+                
                 const params = new URLSearchParams(url.split('?')[1]);
                 const status = params.get('status_id');
                 const billcode = params.get('billcode');
                 const orderId = params.get('order_id');
                 const transactionId = params.get('transaction_id');
-
+                
                 if (status === '1' && billcode) {
                   setBillCode(billcode);
+                  // Process payment directly
                   processPaymentCompletion(billcode, orderId, transactionId);
                 }
-                return false;
+                return false; // Prevent navigation
               }
-              return true;
+              return true; // Allow navigation
             }}
             onError={() => {
               setShowWebView(false);
@@ -653,9 +540,6 @@ const PaymentModal = ({
   );
 };
 
-// ============================================================
-// STYLES
-// ============================================================
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f4f6f8' },
   scrollContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40 },
@@ -669,15 +553,11 @@ const styles = StyleSheet.create({
   amountContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#f0f0f0', marginBottom: 15 },
   amountLabel: { fontSize: 16, color: '#666' },
   amountValue: { fontSize: 24, fontWeight: 'bold' },
-  memberBreakdown: { backgroundColor: '#f8f9fa', padding: 12, borderRadius: 8, marginBottom: 15 },
-  breakdownTitle: { fontSize: 14, fontWeight: 'bold', color: '#333', marginBottom: 6 },
-  breakdownText: { fontSize: 13, color: '#555', paddingVertical: 2 },
-  breakdownMore: { fontSize: 13, color: '#888', fontStyle: 'italic', marginTop: 4 },
   featuresContainer: { marginTop: 5 },
   featuresTitle: { fontSize: 14, fontWeight: 'bold', color: '#333', marginBottom: 10 },
   featureItem: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   featureCheck: { fontSize: 16, marginRight: 10 },
-  featureText: { fontSize: 14, color: '#555', flex: 1 },
+  featureText: { fontSize: 14, color: '#555' },
   infoCard: { backgroundColor: '#f8f9fa', borderRadius: 12, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: '#e9ecef' },
   infoTitle: { fontSize: 14, fontWeight: 'bold', color: '#333', marginBottom: 8 },
   infoText: { fontSize: 13, color: '#666', marginBottom: 4, lineHeight: 20 },

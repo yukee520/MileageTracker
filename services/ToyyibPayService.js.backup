@@ -6,6 +6,7 @@ import { TOYYIBPAY_CONFIG } from '../paymentConfig';
 // Supabase configuration
 const SUPABASE_URL = 'https://dkpjicqepexhgbrzzreo.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_7CXIRyhWhmsQfRfj9dDhWw_Z2efV6fx';
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 class ToyyibPayService {
@@ -26,75 +27,34 @@ class ToyyibPayService {
     return clean.substring(0, 30);
   }
 
-  // ============================================================
-  // CREATE BILL WITH MEMBER COUNT
-  // ============================================================
   async createBill(tier, userData) {
     try {
       console.log('📝 Creating ToyyibPay bill for tier:', tier);
-      console.log('👤 User data:', userData);
-
-      // Check if this is a group plan
-      const isGroup = tier === 'Group Basic' || tier === 'Group Pro';
       
-      // Get member count
-      let memberCount = 1;
-      let totalAmount = 0;
-      let pricePerSeat = 0;
-
-      if (isGroup && userData.teamId) {
-        // Get actual member count from database
-        const { count, error } = await supabase
-          .from('profiles')
-          .select('id', { count: 'exact', head: true })
-          .eq('team_id', userData.teamId);
-
-        if (error) {
-          console.error('Error getting member count:', error);
-          memberCount = 1;
-        } else {
-          memberCount = count || 1;
-        }
-
-        pricePerSeat = tier === 'Group Basic' ? 7 : 12;
-        totalAmount = memberCount * pricePerSeat;
-      } else {
-        // Personal plan
-        const amount = TOYYIBPAY_CONFIG.tierAmounts[tier];
-        if (!amount || amount === 0) {
-          throw new Error('Invalid tier or free tier selected');
-        }
-        totalAmount = amount / 100;
-        pricePerSeat = totalAmount;
+      const amount = TOYYIBPAY_CONFIG.tierAmounts[tier];
+      if (!amount || amount === 0) {
+        throw new Error('Invalid tier or free tier selected');
       }
 
-      console.log(`📊 Member count: ${memberCount}, Total amount: RM${totalAmount}`);
-
-      const amountInCents = totalAmount * 100;
       const reference = this.generateReference();
-      const displayMonth = new Date().toLocaleString('default', {
-        month: 'short',
-        year: 'numeric'
+      const displayMonth = new Date().toLocaleString('default', { 
+        month: 'short', 
+        year: 'numeric' 
       });
 
-      const billName = isGroup 
-        ? `Mileage Tracker ${tier} (${memberCount} seats) ${displayMonth}`
-        : `Mileage Tracker ${tier} ${displayMonth}`;
-      
+      const billName = `Mileage Tracker ${displayMonth}`;
       const truncatedBillName = this.truncateBillName(billName);
-
+      
       console.log('📝 Bill name:', truncatedBillName);
 
       const billData = {
         userSecretKey: this.secretKey,
         categoryCode: this.categoryCode,
         billName: truncatedBillName,
-        billDescription: isGroup 
-          ? `${tier} plan for ${memberCount} team members (RM${pricePerSeat}/seat × ${memberCount})`
-          : `${tier} plan subscription`,
+        billDescription: `${tier} plan subscription`,
         billPriceSetting: 1,
         billPayorInfo: 1,
-        billAmount: amountInCents.toString(),
+        billAmount: amount.toString(),
         billReturnUrl: TOYYIBPAY_CONFIG.returnUrlScheme,
         billCallbackUrl: TOYYIBPAY_CONFIG.webhookUrl,
         billExternalReferenceNo: reference.substring(0, 20),
@@ -140,12 +100,10 @@ class ToyyibPayService {
             driverName: userData.driverName,
             reference: reference,
             billCode: bill.BillCode,
-            amount: totalAmount,
-            memberCount: memberCount,
-            isGroup: isGroup,
+            amount: amount / 100,
             timestamp: new Date().toISOString()
           };
-
+          
           await AsyncStorage.setItem(`@payment_${reference}`, JSON.stringify(paymentContext));
 
           // Save transaction
@@ -153,10 +111,9 @@ class ToyyibPayService {
             userData.userId,
             userData.teamId,
             tier,
-            totalAmount,
+            amount / 100,
             bill.BillCode,
-            reference,
-            memberCount
+            reference
           );
 
           return {
@@ -164,8 +121,7 @@ class ToyyibPayService {
             paymentUrl: `https://toyyibpay.com/${bill.BillCode}`,
             billCode: bill.BillCode,
             reference: reference,
-            amount: totalAmount,
-            memberCount: memberCount
+            amount: amount / 100
           };
         }
       }
@@ -185,13 +141,9 @@ class ToyyibPayService {
     }
   }
 
-  // ============================================================
-  // SAVE TRANSACTION WITH MEMBER COUNT
-  // ============================================================
-  async saveTransaction(userId, teamId, tier, amount, billCode, reference, memberCount) {
+  async saveTransaction(userId, teamId, tier, amount, billCode, reference) {
     try {
       console.log('💾 Saving transaction to Supabase...');
-      
       const { data, error } = await supabase
         .from('transactions')
         .insert({
@@ -203,8 +155,7 @@ class ToyyibPayService {
           reference: reference,
           bill_code: billCode,
           status: 'pending',
-          payment_method: 'toyyibpay',
-          member_count: memberCount || 1
+          payment_method: 'toyyibpay'
         })
         .select()
         .single();
@@ -213,7 +164,7 @@ class ToyyibPayService {
         console.error('❌ Supabase insert error:', error);
         return null;
       }
-
+      
       console.log('✅ Transaction saved:', data);
       return data;
     } catch (error) {
@@ -222,13 +173,15 @@ class ToyyibPayService {
     }
   }
 
-  // ============================================================
-  // COMPLETE PAYMENT
-  // ============================================================
+  /**
+   * Complete payment - Called when return URL is received with status_id=1
+   * This bypasses the API verification since ToyyibPay API is not working
+   */
   async completePayment(billCode, reference, transactionId) {
     try {
       console.log('✅ Completing payment for bill:', billCode);
       console.log('📝 Reference:', reference);
+      console.log('📝 Transaction ID:', transactionId);
 
       // Update transaction status in Supabase
       const { data: txData, error: txError } = await supabase
@@ -244,14 +197,16 @@ class ToyyibPayService {
 
       if (txError) {
         console.error('❌ Error updating transaction:', txError);
+        // Try to find the transaction without updating first
         const { data: findTx } = await supabase
           .from('transactions')
           .select('*')
           .eq('bill_code', billCode)
           .single();
-
+        
         if (findTx) {
           console.log('✅ Found transaction:', findTx);
+          // Activate subscription
           await this.activateSubscription(findTx.team_id, findTx.tier, findTx.id);
           return {
             success: true,
@@ -268,8 +223,10 @@ class ToyyibPayService {
 
       console.log('✅ Transaction updated:', txData);
 
+      // Activate subscription
       await this.activateSubscription(txData.team_id, txData.tier, txData.id);
 
+      // Clear payment context
       await AsyncStorage.removeItem(`@payment_${reference}`);
 
       return {
@@ -288,13 +245,60 @@ class ToyyibPayService {
     }
   }
 
-  // ============================================================
-  // ACTIVATE SUBSCRIPTION
-  // ============================================================
+  /**
+   * Verify payment - Now uses the transaction status from Supabase
+   */
+  async verifyPayment(billCode, reference) {
+    try {
+      console.log('🔍 Checking payment status for bill:', billCode);
+
+      // Check if transaction is already completed in Supabase
+      const { data: txData, error: txError } = await supabase
+        .from('transactions')
+        .select('*')
+        .eq('bill_code', billCode)
+        .single();
+
+      if (txError) {
+        console.error('❌ Error finding transaction:', txError);
+        return {
+          success: false,
+          status: 'not_found',
+          message: 'Transaction not found'
+        };
+      }
+
+      if (txData.status === 'completed') {
+        console.log('✅ Transaction already completed');
+        return {
+          success: true,
+          status: 'completed',
+          transactionDetails: txData
+        };
+      }
+
+      // Transaction is still pending
+      return {
+        success: false,
+        status: 'pending',
+        message: 'Payment still pending',
+        transactionDetails: txData
+      };
+
+    } catch (error) {
+      console.error('❌ Verification error:', error);
+      return {
+        success: false,
+        status: 'error',
+        message: error.message || 'Failed to verify payment'
+      };
+    }
+  }
+
   async activateSubscription(teamId, tier, transactionId) {
     try {
       console.log('🚀 Activating subscription for team:', teamId, 'tier:', tier);
-
+      
       const tierMap = {
         'Personal Free': 'personal_free',
         'Personal Basic': 'personal_basic',
@@ -302,7 +306,7 @@ class ToyyibPayService {
         'Group Basic': 'team_basic',
         'Group Pro': 'team_pro'
       };
-
+      
       const limitMap = {
         'Personal Free': 30,
         'Personal Basic': 100,
@@ -310,7 +314,7 @@ class ToyyibPayService {
         'Group Basic': 100,
         'Group Pro': 99999
       };
-
+      
       const maxMembersMap = {
         'Personal Free': 1,
         'Personal Basic': 1,
@@ -318,7 +322,7 @@ class ToyyibPayService {
         'Group Basic': 10,
         'Group Pro': 25
       };
-
+      
       const { data, error } = await supabase
         .from('teams')
         .update({
@@ -336,7 +340,7 @@ class ToyyibPayService {
         console.error('❌ Error updating team:', error);
         return false;
       }
-
+      
       console.log('✅ Subscription activated:', data);
       return true;
     } catch (error) {
@@ -345,9 +349,6 @@ class ToyyibPayService {
     }
   }
 
-  // ============================================================
-  // CHECK SUBSCRIPTION STATUS
-  // ============================================================
   async checkSubscriptionStatus(teamId) {
     try {
       const { data, error } = await supabase
@@ -380,9 +381,6 @@ class ToyyibPayService {
     }
   }
 
-  // ============================================================
-  // GET TRANSACTION HISTORY
-  // ============================================================
   async getTransactionHistory(userId) {
     try {
       const { data, error } = await supabase
