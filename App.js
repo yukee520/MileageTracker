@@ -804,7 +804,42 @@ export default function App() {
   const handleUpgradeTier = async (newTier) => {
     console.log('Initiating upgrade to tier:', newTier);
 
-    // Group plans are handled in AdminGroupPanel, not here
+    const paidTiers = ['Personal Basic', 'Personal Pro'];
+    const groupTiers = ['Group Basic', 'Group Pro'];
+    const isNewTierPaid = paidTiers.includes(newTier);
+    const isCurrentTierPaid = paidTiers.includes(subscriptionTier);
+    const isCurrentGroup = groupTiers.includes(subscriptionTier);
+    const isNewGroup = groupTiers.includes(newTier);
+
+    // If downgrading from group to personal, confirm with user
+    if (isCurrentGroup && !isNewGroup) {
+      Alert.alert(
+        '⚠️ Warning: Leaving Group',
+        'You are about to leave the group and downgrade to a personal plan.\n\nAll group members will be removed from the group and moved to personal plans.\n\nAre you sure you want to continue?',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Yes, Leave Group',
+            style: 'destructive',
+            onPress: async () => {
+              const status = await checkSubscriptionStatus(teamId);
+              if (status && status.isActive && status.status === 'active') {
+                const expiryDate = status.expiresAt ? new Date(status.expiresAt).toLocaleDateString() : 'Unknown';
+                Alert.alert(
+                  'Active Subscription',
+                  `You have an active group subscription until ${expiryDate}. You can downgrade after it expires.`
+                );
+                return;
+              }
+              await performTierUpgrade(newTier);
+            }
+          }
+        ]
+      );
+      return;
+    }
+
+    // Group plans are handled in AdminGroupPanel
     if (newTier === 'Group Basic' || newTier === 'Group Pro') {
       Alert.alert(
         'Group Plan',
@@ -812,10 +847,6 @@ export default function App() {
       );
       return;
     }
-
-    const paidTiers = ['Personal Basic', 'Personal Pro'];
-    const isNewTierPaid = paidTiers.includes(newTier);
-    const isCurrentTierPaid = paidTiers.includes(subscriptionTier);
 
     if (isCurrentTierPaid && !isNewTierPaid) {
       const status = await checkSubscriptionStatus(teamId);
@@ -855,6 +886,12 @@ export default function App() {
         return;
       }
 
+      // Check if this is a downgrade from group to personal
+      const isGroupToPersonal = 
+        (subscriptionTier === 'Group Basic' || subscriptionTier === 'Group Pro') && 
+        (newTier === 'Personal Free' || newTier === 'Personal Basic' || newTier === 'Personal Pro');
+
+      // Update team subscription
       const { error } = await supabase
         .from('teams')
         .update({
@@ -866,6 +903,52 @@ export default function App() {
 
       if (error) throw error;
 
+      // If downgrading from group to personal, remove user from group
+      if (isGroupToPersonal) {
+        // Update user's profile to leave the group
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .update({
+            team_id: null,
+            role: 'member'
+          })
+          .eq('id', user.id);
+
+        if (profileError) throw profileError;
+
+        // Also remove all other members from the group
+        const { data: members, error: membersError } = await supabase
+          .from('profiles')
+          .select('id')
+          .eq('team_id', teamId)
+          .neq('id', user.id);
+
+        if (membersError) throw membersError;
+
+        // For each member, remove them from the group
+        for (const member of members || []) {
+          await supabase
+            .from('profiles')
+            .update({
+              team_id: null,
+              role: 'member'
+            })
+            .eq('id', member.id);
+        }
+
+        // Reset state
+        setTeamId(null);
+        setIsAdmin(false);
+        setHasGroup(false);
+        setTeamMembers([]);
+        setGroupMembers([]);
+
+        Alert.alert(
+          'Group Downgraded',
+          'You have been removed from the group. All members have been moved to personal plans.'
+        );
+      }
+
       setSubscriptionTier(newTier);
       await loadUserData(user);
       setShowSubscriptionModal(false);
@@ -875,7 +958,7 @@ export default function App() {
       Alert.alert('Error', 'Failed to upgrade subscription: ' + error.message);
     } finally {
       setPaymentLoading(false);
-      setShowPaymentModal(false);
+      setShowSubscriptionModal(false);
     }
   };
 
