@@ -272,10 +272,9 @@ const ReferralScreen = ({ user, onClose }) => {
 
             // Add this near the stats section
 <View style={[styles.statCard, { backgroundColor: '#fce4ec' }]}>
-  <Text style={[styles.statNumber, { color: '#c62828' }]}>12</Text>
+  <Text style={[styles.statNumber, { color: '#c62828' }]}>1</Text>
   <Text style={styles.statLabel}>Max Free Months</Text>
 </View>
-
             <View style={styles.shareButtonsRow}>
               <TouchableOpacity style={[styles.shareBtn, styles.shareBtnShare]} onPress={handleShare}>
                 <Text style={styles.shareBtnText}>📤 Share</Text>
@@ -289,27 +288,7 @@ const ReferralScreen = ({ user, onClose }) => {
             </View>
           </View>
 
-          {/* Download App Section */}
-          <View style={styles.downloadSection}>
-            <Text style={styles.sectionTitle}>📱 Download APK from Google Drive</Text>
-            <Text style={styles.downloadSubText}>
-              Download the APK from Google Drive and share with friends!
-            </Text>
-
-            <TouchableOpacity style={styles.downloadBtn} onPress={handleOpenDownloadLink}>
-              <Text style={styles.downloadBtnText}>⬇️ Open Google Drive</Text>
-            </TouchableOpacity>
-
-            <Text style={styles.downloadLinkText} numberOfLines={1}>
-              {APP_DOWNLOAD_LINK}
-            </Text>
-
-            <View style={styles.driveInfoBox}>
-              <Text style={styles.driveInfoText}>
-                💡 Tip: Upload your APK to Google Drive and set sharing to "Anyone with the link can view"
-              </Text>
-            </View>
-          </View>
+        
 
           {/* Stats Section */}
           <View style={styles.statsSection}>
