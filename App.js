@@ -161,6 +161,7 @@ export default function App() {
   const [showSearchGroup, setShowSearchGroup] = useState(false);
   const [showAdminGroupPanel, setShowAdminGroupPanel] = useState(false);
   const [groupMembers, setGroupMembers] = useState([]);
+  const [hasGroup, setHasGroup] = useState(false);
 
   const [pendingReferralCode, setPendingReferralCode] = useState(null);
   const isLoadingRef = useRef(false);
@@ -520,13 +521,24 @@ export default function App() {
   // ============================================================
   const loadTeamMembers = async (teamId) => {
     try {
+      if (!teamId) {
+        setTeamMembers([]);
+        setGroupMembers([]);
+        setHasGroup(false);
+        return;
+      }
+      
       const result = await GroupService.getGroupMembers(teamId);
       if (result.success) {
         setTeamMembers(result.data || []);
         setGroupMembers(result.data || []);
+        setHasGroup(result.data && result.data.length > 0);
       }
     } catch (error) {
       console.error('Error loading team members:', error);
+      setTeamMembers([]);
+      setGroupMembers([]);
+      setHasGroup(false);
     }
   };
 
@@ -610,7 +622,11 @@ export default function App() {
         console.log('Existing profile found:', currentProfile);
       }
 
-      const isUserAdmin = currentProfile.role === 'admin';
+      // Check if user has a valid team
+      const hasValidTeam = currentTeamId !== null && currentTeamId !== undefined;
+      
+      // Only set admin if user has a team and role is admin
+      const isUserAdmin = hasValidTeam && currentProfile.role === 'admin';
       setIsAdmin(isUserAdmin);
 
       setProfile(currentProfile);
@@ -618,6 +634,7 @@ export default function App() {
       setUserEmail(currentProfile.email || '');
       setTeamId(currentTeamId);
       setUserId(user.id);
+      setHasGroup(hasValidTeam);
 
       if (currentTeamId) {
         console.log('Fetching team subscription...');
@@ -631,6 +648,11 @@ export default function App() {
         
         // Load team members
         await loadTeamMembers(currentTeamId);
+      } else {
+        // No team - reset team members
+        setTeamMembers([]);
+        setGroupMembers([]);
+        setHasGroup(false);
       }
 
       console.log('Loading trips...');
@@ -878,7 +900,7 @@ export default function App() {
   };
 
   // ============================================================
-  // AUTH HANDLERS
+  // AUTH HANDLERS - WITH DUPLICATE EMAIL CHECK
   // ============================================================
   const handleAuth = async () => {
     if (!loginEmail || !loginPassword) {
@@ -886,8 +908,40 @@ export default function App() {
       return;
     }
 
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(loginEmail)) {
+      Alert.alert('Error', 'Please enter a valid email address');
+      return;
+    }
+
     setIsLoading(true);
     try {
+      // For sign up, check if email already exists
+      if (!isLogin) {
+        const { data: existingUser, error: checkError } = await supabase
+          .from('profiles')
+          .select('email')
+          .eq('email', loginEmail)
+          .maybeSingle();
+
+        if (checkError && checkError.code !== 'PGRST116') {
+          console.error('Error checking email:', checkError);
+        }
+
+        if (existingUser) {
+          Alert.alert(
+            'Email Already Registered',
+            'This email is already registered. Please sign in instead.',
+            [
+              { text: 'OK', onPress: () => setIsLogin(true) }
+            ]
+          );
+          setIsLoading(false);
+          return;
+        }
+      }
+
       let result;
       if (isLogin) {
         result = await supabase.auth.signInWithPassword({
@@ -908,6 +962,16 @@ export default function App() {
 
       if (result.error) {
         console.error('Auth error:', result.error);
+        
+        // Handle specific error messages
+        if (result.error.message.includes('Email not confirmed')) {
+          Alert.alert(
+            'Email Not Confirmed',
+            'Please check your email and confirm your account before signing in.'
+          );
+        } else {
+          Alert.alert('Authentication Error', result.error.message);
+        }
         throw result.error;
       }
 
@@ -927,7 +991,9 @@ export default function App() {
       }
     } catch (error) {
       console.error('Auth error:', error);
-      Alert.alert('Authentication Error', error.message);
+      if (!error.message?.includes('Email not confirmed')) {
+        // Only show if not already shown
+      }
       setIsLoading(false);
     }
   };
@@ -2170,8 +2236,8 @@ export default function App() {
               </TouchableOpacity>
             </View>
 
-            {/* Group Management Section */}
-            {teamId && (
+            {/* Group Management Section - Only show if user has a group */}
+            {hasGroup && teamId && (
               <View style={styles.settingBox}>
                 <Text style={styles.settingOptionTitle}>👥 Group Management</Text>
                 {isAdmin ? (
@@ -2185,37 +2251,36 @@ export default function App() {
                     </TouchableOpacity>
                   </>
                 ) : (
-                  <Text style={styles.settingOptionSub}>You are a member of {teamMembers.length} group</Text>
+                  <Text style={styles.settingOptionSub}>You are a member of this group</Text>
                 )}
                 <TouchableOpacity 
-                  style={[styles.btn, { backgroundColor: '#28a745', marginTop: 8 }]} 
+                  style={[styles.btn, { backgroundColor: '#17a2b8', marginTop: 8 }]} 
                   onPress={() => setShowSearchGroup(true)}
                 >
-                  <Text style={styles.btnText}>🔍 Search Groups</Text>
+                  <Text style={styles.btnText}>🔍 Browse Groups</Text>
                 </TouchableOpacity>
               </View>
             )}
 
-            {/* Create Group - Only show if user has no group */}
-            {!teamId && (
-              <TouchableOpacity style={styles.settingOptionRow} onPress={handleCreateGroup}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.settingOptionTitle}>🚀 Create a Group</Text>
-                  <Text style={styles.settingOptionSub}>Start your own group and become an admin</Text>
-                </View>
-                <Text style={styles.settingOptionArrow}>▶</Text>
-              </TouchableOpacity>
-            )}
+            {/* Create Group - Only show if user has NO group */}
+            {!hasGroup && !teamId && (
+              <>
+                <TouchableOpacity style={styles.settingOptionRow} onPress={handleCreateGroup}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.settingOptionTitle}>🚀 Create a Group</Text>
+                    <Text style={styles.settingOptionSub}>Start your own group and become an admin</Text>
+                  </View>
+                  <Text style={styles.settingOptionArrow}>▶</Text>
+                </TouchableOpacity>
 
-            {/* Join Group - Only show if user has no group */}
-            {!teamId && (
-              <TouchableOpacity style={styles.settingOptionRow} onPress={handleSearchGroup}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.settingOptionTitle}>🔍 Join a Group</Text>
-                  <Text style={styles.settingOptionSub}>Search and request to join an existing group</Text>
-                </View>
-                <Text style={styles.settingOptionArrow}>▶</Text>
-              </TouchableOpacity>
+                <TouchableOpacity style={styles.settingOptionRow} onPress={handleSearchGroup}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.settingOptionTitle}>🔍 Join a Group</Text>
+                    <Text style={styles.settingOptionSub}>Search and request to join an existing group</Text>
+                  </View>
+                  <Text style={styles.settingOptionArrow}>▶</Text>
+                </TouchableOpacity>
+              </>
             )}
 
             <TouchableOpacity style={styles.settingOptionRow} onPress={() => {
