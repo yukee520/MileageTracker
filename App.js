@@ -4,7 +4,7 @@ import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import ExcelJS from 'exceljs';
 import PaymentModal from './components/PaymentModal';
@@ -1169,7 +1169,6 @@ export default function App() {
 
   const endTrip = async () => {
     try {
-      // Stop location updates
       if (locationUpdateInterval.current) {
         clearInterval(locationUpdateInterval.current);
         locationUpdateInterval.current = null;
@@ -1232,7 +1231,6 @@ export default function App() {
         await ReferralService.checkAndRewardReferral(user.id);
       }
 
-      // Clear saved tracking state
       await AsyncStorage.removeItem('@is_tracking');
       await AsyncStorage.removeItem('@background_route');
       await AsyncStorage.removeItem('@start_time');
@@ -1240,8 +1238,6 @@ export default function App() {
       await AsyncStorage.removeItem('@selected_category');
 
       setLoadingSummary(false);
-      
-      // Switch to home tab to show the completed trip
       setActiveTab('home');
       Alert.alert('✅ Trip Completed!', `Your trip of ${distanceKM} km has been saved.`);
     } catch (error) {
@@ -1365,7 +1361,6 @@ export default function App() {
   };
 
   const handleInitiateNewTrip = () => {
-    // Check if a trip is already active
     if (isTripActive || isTrackingRef.current) {
       Alert.alert(
         "Trip Already Active",
@@ -1394,7 +1389,6 @@ export default function App() {
 
   const startTripWithPurpose = async (purposeName) => {
     try {
-      // Check if a trip is already active
       if (isTripActive || isTrackingRef.current) {
         Alert.alert(
           "Trip Already Active",
@@ -1403,7 +1397,6 @@ export default function App() {
         return;
       }
       
-      // Request foreground permission
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Permission Denied', 'Location permission is required for tracking.');
@@ -1421,7 +1414,6 @@ export default function App() {
       setIsTripActive(true);
       setActiveTab('tracking');
 
-      // Start location tracking with reduced frequency to prevent UI freeze
       const sub = await Location.watchPositionAsync(
         { 
           accuracy: Location.Accuracy.Balanced, 
@@ -1429,7 +1421,6 @@ export default function App() {
           timeInterval: 5000
         },
         async (loc) => {
-          // Update route state
           const newPoint = {
             latitude: loc.coords.latitude,
             longitude: loc.coords.longitude
@@ -1441,7 +1432,6 @@ export default function App() {
             return newRoute;
           });
 
-          // Update address less frequently
           const now = Date.now();
           if (!lastLocationUpdate || now - lastLocationUpdate > 10000) {
             setLastLocationUpdate(now);
@@ -1465,7 +1455,6 @@ export default function App() {
       
       watchSubscriptionRef.current = sub;
 
-      // Try to start background tracking
       try {
         await startBackgroundTracking();
       } catch (bgError) {
@@ -1709,7 +1698,7 @@ export default function App() {
   };
 
   // ============================================================
-  // EXCEL EXPORT
+  // EXCEL EXPORT - FIXED WITH LEGACY API
   // ============================================================
   const generateExcelReport = async () => {
     try {
@@ -1840,10 +1829,10 @@ export default function App() {
       const buffer = await workbook.xlsx.writeBuffer();
       const base64String = arrayBufferToBase64(buffer);
 
-          const encodingType = FileSystem.EncodingType ? FileSystem.EncodingType.Base64 : 'base64';
-    await FileSystem.writeAsStringAsync(filePath, base64String, {
-      encoding: encodingType,
-    });
+      // FIXED: Use FileSystem.EncodingType.Base64 from legacy import
+      await FileSystem.writeAsStringAsync(filePath, base64String, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
 
       const fileInfo = await FileSystem.getInfoAsync(filePath);
       if (!fileInfo.exists) {
@@ -1960,7 +1949,7 @@ export default function App() {
   return (
     <View style={styles.container}>
       <View style={{ flex: 1 }}>
-        {/* FLOATING END TRIP BUTTON - Always visible when tracking */}
+        {/* FLOATING END TRIP BUTTON */}
         {isTripActive && (
           <View style={styles.floatingEndTripContainer}>
             <TouchableOpacity 
