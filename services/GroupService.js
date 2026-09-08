@@ -1,0 +1,336 @@
+import { createClient } from '@supabase/supabase-js';
+
+const SUPABASE_URL = 'https://dkpjicqepexhgbrzzreo.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_7CXIRyhWhmsQfRfj9dDhWw_Z2efV6fx';
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+class GroupService {
+  // ============================================================
+  // CREATE GROUP - User becomes admin
+  // ============================================================
+  static async createGroup(userId, groupName, description = '') {
+    try {
+      // Check if user already has a group
+      const { data: existing, error: checkError } = await supabase
+        .from('profiles')
+        .select('team_id, role')
+        .eq('id', userId)
+        .single();
+
+      if (checkError) throw checkError;
+
+      if (existing.team_id) {
+        return { 
+          success: false, 
+          error: 'You are already in a group. Leave your current group first.' 
+        };
+      }
+
+      // Create the team
+      const { data: team, error: teamError } = await supabase
+        .from('teams')
+        .insert({
+          name: groupName,
+          group_name: groupName.toLowerCase().replace(/\s/g, '-'),
+          description: description,
+          created_by: userId,
+          subscription_tier: 'personal_free',
+          monthly_trip_limit: 30,
+          max_members: 10
+        })
+        .select()
+        .single();
+
+      if (teamError) throw teamError;
+
+      // Update user's profile to be admin of this team
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .update({
+          team_id: team.id,
+          role: 'admin'
+        })
+        .eq('id', userId);
+
+      if (profileError) throw profileError;
+
+      return {
+        success: true,
+        data: team
+      };
+    } catch (error) {
+      console.error('Error creating group:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ============================================================
+  // SEARCH GROUPS
+  // ============================================================
+  static async searchGroups(query) {
+    try {
+      if (!query || query.trim().length < 2) {
+        return { success: true, data: [] };
+      }
+
+      const { data, error } = await supabase
+        .from('teams')
+        .select(`
+          id,
+          name,
+          group_name,
+          description,
+          subscription_tier,
+          max_members,
+          created_at,
+          created_by,
+          profiles!teams_created_by_fkey (id, full_name, email)
+        `)
+        .or(`name.ilike.%${query.trim()}%,group_name.ilike.%${query.trim()}%`)
+        .limit(20);
+
+      if (error) throw error;
+      return { success: true, data: data || [] };
+    } catch (error) {
+      console.error('Error searching groups:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ============================================================
+  // GET GROUP DETAILS
+  // ============================================================
+  static async getGroupDetails(teamId) {
+    try {
+      const { data, error } = await supabase
+        .from('teams')
+        .select(`
+          *,
+          profiles!teams_created_by_fkey (id, full_name, email)
+        `)
+        .eq('id', teamId)
+        .single();
+
+      if (error) throw error;
+      return { success: true, data };
+    } catch (error) {
+      console.error('Error getting group details:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ============================================================
+  // GET GROUP MEMBERS
+  // ============================================================
+  static async getGroupMembers(teamId) {
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('id, full_name, email, role')
+        .eq('team_id', teamId);
+
+      if (error) throw error;
+      return { success: true, data: data || [] };
+    } catch (error) {
+      console.error('Error getting group members:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ============================================================
+  // REQUEST TO JOIN GROUP
+  // ============================================================
+  static async requestToJoin(teamId, userId, message = '') {
+    try {
+      // Check if already a member
+      const { data: member, error: memberError } = await supabase
+        .from('profiles')
+        .select('team_id')
+        .eq('id', userId)
+        .single();
+
+      if (memberError) throw memberError;
+
+      if (member.team_id === teamId) {
+        return { success: false, error: 'You are already a member of this group' };
+      }
+
+      if (member.team_id) {
+        return { 
+          success: false, 
+          error: 'You are already in a different group. Leave your current group first.' 
+        };
+      }
+
+      // Check if there's a pending request
+      const { data: existing, error: existingError } = await supabase
+        .from('group_join_requests')
+        .select('id, status')
+        .eq('team_id', teamId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (existingError && existingError.code !== 'PGRST116') throw existingError;
+
+      if (existing) {
+        if (existing.status === 'pending') {
+          return { success: false, error: 'Your request is already pending approval' };
+        }
+        if (existing.status === 'approved') {
+          return { success: false, error: 'You are already a member' };
+        }
+        if (existing.status === 'rejected') {
+          return { success: false, error: 'Your previous request was rejected' };
+        }
+      }
+
+      // Create join request
+      const { data, error } = await supabase
+        .from('group_join_requests')
+        .insert({
+          team_id: teamId,
+          user_id: userId,
+          message: message || 'I would like to join your group',
+          status: 'pending'
+        })
+        .select()
+        .single();
+
+      if (error) throw error;
+      return { success: true, data };
+    } catch (error) {
+      console.error('Error requesting to join:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ============================================================
+  // GET PENDING REQUESTS (for admin)
+  // ============================================================
+  static async getPendingRequests(teamId) {
+    try {
+      const { data, error } = await supabase
+        .from('group_join_requests')
+        .select(`
+          *,
+          profiles!group_join_requests_user_id_fkey (id, full_name, email)
+        `)
+        .eq('team_id', teamId)
+        .eq('status', 'pending')
+        .order('created_at', { ascending: true });
+
+      if (error) throw error;
+      return { success: true, data: data || [] };
+    } catch (error) {
+      console.error('Error getting pending requests:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ============================================================
+  // APPROVE OR REJECT JOIN REQUEST
+  // ============================================================
+  static async handleJoinRequest(requestId, teamId, userId, action) {
+    try {
+      // Update request status
+      const { error: updateError } = await supabase
+        .from('group_join_requests')
+        .update({ 
+          status: action, 
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', requestId);
+
+      if (updateError) throw updateError;
+
+      if (action === 'approved') {
+        // Add user to team
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .update({ team_id: teamId })
+          .eq('id', userId);
+
+        if (profileError) throw profileError;
+      }
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error handling join request:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ============================================================
+  // LEAVE GROUP
+  // ============================================================
+  static async leaveGroup(userId) {
+    try {
+      // Check if user is admin
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('team_id, role')
+        .eq('id', userId)
+        .single();
+
+      if (profileError) throw profileError;
+
+      if (profile.role === 'admin') {
+        // Check if there are other members
+        const { count, error: countError } = await supabase
+          .from('profiles')
+          .select('id', { count: 'exact' })
+          .eq('team_id', profile.team_id);
+
+        if (countError) throw countError;
+
+        if (count > 1) {
+          return { 
+            success: false, 
+            error: 'You are the admin. Transfer admin role to another member before leaving.' 
+          };
+        }
+      }
+
+      // Leave group
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ team_id: null, role: 'member' })
+        .eq('id', userId);
+
+      if (updateError) throw updateError;
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error leaving group:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  // ============================================================
+  // TRANSFER ADMIN ROLE
+  // ============================================================
+  static async transferAdmin(teamId, fromUserId, toUserId) {
+    try {
+      // Demote current admin
+      await supabase
+        .from('profiles')
+        .update({ role: 'member' })
+        .eq('id', fromUserId);
+
+      // Promote new admin
+      const { error: promoteError } = await supabase
+        .from('profiles')
+        .update({ role: 'admin' })
+        .eq('id', toUserId);
+
+      if (promoteError) throw promoteError;
+
+      return { success: true };
+    } catch (error) {
+      console.error('Error transferring admin:', error);
+      return { success: false, error: error.message };
+    }
+  }
+}
+
+export default GroupService;

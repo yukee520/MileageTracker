@@ -11,6 +11,10 @@ import PaymentModal from './components/PaymentModal';
 import AdminPanel from './components/AdminPanel';
 import ReferralScreen from './components/ReferralScreen';
 import ReferralService from './services/ReferralService';
+import GroupService from './services/GroupService';
+import CreateGroupScreen from './components/CreateGroupScreen';
+import GroupSearchScreen from './components/GroupSearchScreen';
+import AdminGroupPanel from './components/AdminGroupPanel';
 
 // ============================================================
 // TASK DEFINITION FOR BACKGROUND LOCATION
@@ -105,8 +109,6 @@ export default function App() {
   const [editEmail, setEditEmail] = useState('');
   const [editVehicle, setEditVehicle] = useState('');
   const [teamMembers, setTeamMembers] = useState([]);
-  const [showInviteModal, setShowInviteModal] = useState(false);
-  const [inviteEmail, setInviteEmail] = useState('');
   const [showMemberTripDetails, setShowMemberTripDetails] = useState(false);
   const [selectedMemberTrips, setSelectedMemberTrips] = useState([]);
   const [selectedMemberName, setSelectedMemberName] = useState('');
@@ -153,6 +155,12 @@ export default function App() {
   const [isTrackingActive, setIsTrackingActive] = useState(false);
   const [lastLocationUpdate, setLastLocationUpdate] = useState(null);
   const [isTripActive, setIsTripActive] = useState(false);
+
+  // Group Management States
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [showSearchGroup, setShowSearchGroup] = useState(false);
+  const [showAdminGroupPanel, setShowAdminGroupPanel] = useState(false);
+  const [groupMembers, setGroupMembers] = useState([]);
 
   const [pendingReferralCode, setPendingReferralCode] = useState(null);
   const isLoadingRef = useRef(false);
@@ -508,40 +516,15 @@ export default function App() {
   }, []);
 
   // ============================================================
-  // LOAD TEAM MEMBERS
+  // LOAD TEAM MEMBERS / GROUP MEMBERS
   // ============================================================
   const loadTeamMembers = async (teamId) => {
     try {
-      const { data, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('team_id', teamId);
-
-      if (error) throw error;
-
-      const membersWithStats = await Promise.all(data.map(async (member) => {
-        const { count, error: countError } = await supabase
-          .from('trip_logs')
-          .select('*', { count: 'exact', head: true })
-          .eq('user_id', member.id);
-
-        const { data: distanceData } = await supabase
-          .from('trip_logs')
-          .select('distance_km')
-          .eq('user_id', member.id);
-
-        const totalDistance = distanceData?.reduce((sum, t) => sum + parseFloat(t.distance_km), 0) || 0;
-
-        return {
-          id: member.id,
-          name: member.full_name || member.email,
-          role: member.role || 'member',
-          trips: count || 0,
-          distance: totalDistance
-        };
-      }));
-
-      setTeamMembers(membersWithStats);
+      const result = await GroupService.getGroupMembers(teamId);
+      if (result.success) {
+        setTeamMembers(result.data || []);
+        setGroupMembers(result.data || []);
+      }
     } catch (error) {
       console.error('Error loading team members:', error);
     }
@@ -645,17 +628,15 @@ export default function App() {
           setSubscriptionExpiry(status.expiresAt);
           console.log('Subscription status:', status);
         }
+        
+        // Load team members
+        await loadTeamMembers(currentTeamId);
       }
 
       console.log('Loading trips...');
       const userRole = currentProfile.role || 'member';
       const loadedTrips = await loadTrips(user.id, currentTeamId, userRole);
       console.log('Total trips loaded:', loadedTrips?.length || 0);
-
-      if (userRole === 'admin' && currentTeamId) {
-        console.log('Loading team members...');
-        await loadTeamMembers(currentTeamId);
-      }
 
       console.log('User data loaded successfully');
       setCurrentScreen('app');
@@ -725,6 +706,7 @@ export default function App() {
           setTrips([]);
           setProfile(null);
           setTeamMembers([]);
+          setGroupMembers([]);
           isInitializedRef.current = false;
           setCurrentScreen('auth');
         }
@@ -800,7 +782,16 @@ export default function App() {
   const handleUpgradeTier = async (newTier) => {
     console.log('Initiating upgrade to tier:', newTier);
 
-    const paidTiers = ['Personal Basic', 'Personal Pro', 'Group Basic', 'Group Pro'];
+    // Group plans are handled in AdminGroupPanel, not here
+    if (newTier === 'Group Basic' || newTier === 'Group Pro') {
+      Alert.alert(
+        'Group Plan',
+        'Group plans can only be purchased by group admins.\n\nPlease go to Group Management → Pay for Members.'
+      );
+      return;
+    }
+
+    const paidTiers = ['Personal Basic', 'Personal Pro'];
     const isNewTierPaid = paidTiers.includes(newTier);
     const isCurrentTierPaid = paidTiers.includes(subscriptionTier);
 
@@ -1685,20 +1676,22 @@ export default function App() {
   };
 
   // ============================================================
-  // INVITE HANDLER
+  // GROUP MANAGEMENT NAVIGATION
   // ============================================================
-  const handleSendInvite = () => {
-    if (!inviteEmail.trim()) {
-      Alert.alert('Required', 'Please enter an email address.');
-      return;
-    }
-    Alert.alert('Invitation Sent', `An invitation has been sent to ${inviteEmail}.`);
-    setInviteEmail('');
-    setShowInviteModal(false);
+  const handleCreateGroup = () => {
+    setShowCreateGroup(true);
+  };
+
+  const handleSearchGroup = () => {
+    setShowSearchGroup(true);
+  };
+
+  const handleAdminGroupPanel = () => {
+    setShowAdminGroupPanel(true);
   };
 
   // ============================================================
-  // EXCEL EXPORT - FIXED WITH LEGACY API
+  // EXCEL EXPORT
   // ============================================================
   const generateExcelReport = async () => {
     try {
@@ -1829,9 +1822,9 @@ export default function App() {
       const buffer = await workbook.xlsx.writeBuffer();
       const base64String = arrayBufferToBase64(buffer);
 
-      // FIXED: Use FileSystem.EncodingType.Base64 from legacy import
+      const encodingType = FileSystem.EncodingType ? FileSystem.EncodingType.Base64 : 'base64';
       await FileSystem.writeAsStringAsync(filePath, base64String, {
-        encoding: FileSystem.EncodingType.Base64,
+        encoding: encodingType,
       });
 
       const fileInfo = await FileSystem.getInfoAsync(filePath);
@@ -2045,9 +2038,6 @@ export default function App() {
               <View style={styles.groupDashboardSection}>
                 <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                   <Text style={styles.sectionHeaderTitle}>👑 Group Admin Overview</Text>
-                  <TouchableOpacity style={styles.inviteSmallBtn} onPress={() => setShowInviteModal(true)}>
-                    <Text style={styles.inviteSmallBtnText}>+ Invite Member</Text>
-                  </TouchableOpacity>
                 </View>
 
                 <View style={[styles.statsCard, { backgroundColor: '#eef6ff' }]}>
@@ -2073,7 +2063,7 @@ export default function App() {
                     >
                       <View style={{ flex: 1 }}>
                         <Text style={styles.memberName}>
-                          {member.name} {member.role === 'admin' && '(You)'} <Text style={styles.memberRole}>({member.role})</Text>
+                          {member.name} {member.role === 'admin' && '(Admin)'} <Text style={styles.memberRole}>({member.role})</Text>
                         </Text>
                         <Text style={styles.memberStats}>{stats.totalTrips} trips completed • {stats.totalDistance} km</Text>
                       </View>
@@ -2090,9 +2080,9 @@ export default function App() {
                 </TouchableOpacity>
               </View>
             ) : (
-              <TouchableOpacity style={styles.groupUpgradeBanner} onPress={() => setShowSubscriptionModal(true)}>
-                <Text style={styles.groupUpgradeTitle}>👥 Upgrade to Group Plan</Text>
-                <Text style={styles.groupUpgradeSub}>Manage team seats, centralize mileage tracking, and access group summaries.</Text>
+              <TouchableOpacity style={styles.groupUpgradeBanner} onPress={() => setShowSearchGroup(true)}>
+                <Text style={styles.groupUpgradeTitle}>👥 Join or Create a Group</Text>
+                <Text style={styles.groupUpgradeSub}>Join an existing group or create your own to collaborate with team members.</Text>
               </TouchableOpacity>
             )}
 
@@ -2174,10 +2164,59 @@ export default function App() {
               <Text style={{ color: '#666', marginTop: 6 }}>
                 Limit: {monthlyUsageCount} / {currentLimit >= 9999 ? 'Unlimited' : `${currentLimit} trips/month`}
               </Text>
+              {/* Personal Plans Only - No Group Plans Here */}
               <TouchableOpacity style={[styles.btn, styles.startBtn, { marginTop: 12 }]} onPress={() => setShowSubscriptionModal(true)}>
-                <Text style={styles.btnText}>⚡ Manage Subscription</Text>
+                <Text style={styles.btnText}>⚡ Manage Personal Plan</Text>
               </TouchableOpacity>
             </View>
+
+            {/* Group Management Section */}
+            {teamId && (
+              <View style={styles.settingBox}>
+                <Text style={styles.settingOptionTitle}>👥 Group Management</Text>
+                {isAdmin ? (
+                  <>
+                    <Text style={styles.settingOptionSub}>You are the group admin</Text>
+                    <TouchableOpacity 
+                      style={[styles.btn, { backgroundColor: '#6f42c1', marginTop: 8 }]} 
+                      onPress={handleAdminGroupPanel}
+                    >
+                      <Text style={styles.btnText}>👑 Manage Group & Subscription</Text>
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <Text style={styles.settingOptionSub}>You are a member of {teamMembers.length} group</Text>
+                )}
+                <TouchableOpacity 
+                  style={[styles.btn, { backgroundColor: '#28a745', marginTop: 8 }]} 
+                  onPress={() => setShowSearchGroup(true)}
+                >
+                  <Text style={styles.btnText}>🔍 Search Groups</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Create Group - Only show if user has no group */}
+            {!teamId && (
+              <TouchableOpacity style={styles.settingOptionRow} onPress={handleCreateGroup}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.settingOptionTitle}>🚀 Create a Group</Text>
+                  <Text style={styles.settingOptionSub}>Start your own group and become an admin</Text>
+                </View>
+                <Text style={styles.settingOptionArrow}>▶</Text>
+              </TouchableOpacity>
+            )}
+
+            {/* Join Group - Only show if user has no group */}
+            {!teamId && (
+              <TouchableOpacity style={styles.settingOptionRow} onPress={handleSearchGroup}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.settingOptionTitle}>🔍 Join a Group</Text>
+                  <Text style={styles.settingOptionSub}>Search and request to join an existing group</Text>
+                </View>
+                <Text style={styles.settingOptionArrow}>▶</Text>
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity style={styles.settingOptionRow} onPress={() => {
               setManagerCategory('Business');
@@ -2188,23 +2227,6 @@ export default function App() {
               <View style={{ flex: 1 }}>
                 <Text style={styles.settingOptionTitle}>🎯 Manage Purposes</Text>
                 <Text style={styles.settingOptionSub}>Add, edit or delete purposes for Business & Personal categories</Text>
-              </View>
-              <Text style={styles.settingOptionArrow}>▶</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.settingOptionRow} onPress={() => {
-              if (currentConfig.group) {
-                setShowInviteModal(true);
-              } else {
-                Alert.alert("Group Feature", "Team invitations are only available on Group subscriptions.", [
-                  { text: "Cancel", style: "cancel" },
-                  { text: "View Plans", onPress: () => setShowSubscriptionModal(true) }
-                ]);
-              }
-            }}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.settingOptionTitle}>👥 Team Management & Invitations</Text>
-                <Text style={styles.settingOptionSub}>{currentConfig.group ? `Manage ${teamMembers.length} seat(s) & invite members` : 'Upgrade to Group plan to invite members'}</Text>
               </View>
               <Text style={styles.settingOptionArrow}>▶</Text>
             </TouchableOpacity>
@@ -2377,7 +2399,56 @@ export default function App() {
         </TouchableOpacity>
       </View>
 
+      {/* ============================================================ */}
       {/* MODALS */}
+      {/* ============================================================ */}
+
+      {/* Create Group Screen */}
+      {showCreateGroup && (
+        <CreateGroupScreen
+          user={user}
+          onClose={() => {
+            setShowCreateGroup(false);
+            loadUserData(user);
+          }}
+          onGroupCreated={() => {
+            setShowCreateGroup(false);
+            loadUserData(user);
+          }}
+        />
+      )}
+
+      {/* Search Group Screen */}
+      {showSearchGroup && (
+        <GroupSearchScreen
+          user={user}
+          onClose={() => {
+            setShowSearchGroup(false);
+            loadUserData(user);
+          }}
+          onJoinGroup={() => {
+            setShowSearchGroup(false);
+            loadUserData(user);
+          }}
+        />
+      )}
+
+      {/* Admin Group Panel */}
+      {showAdminGroupPanel && (
+        <AdminGroupPanel
+          user={user}
+          teamId={teamId}
+          onClose={() => {
+            setShowAdminGroupPanel(false);
+            loadUserData(user);
+          }}
+          onUpdate={() => {
+            loadUserData(user);
+          }}
+        />
+      )}
+
+      {/* Admin Panel Modal */}
       {showAdminPanel && (
         <AdminPanel
           user={user}
@@ -2385,6 +2456,7 @@ export default function App() {
         />
       )}
 
+      {/* Referral Screen Modal */}
       {showReferralScreen && (
         <ReferralScreen
           user={user}
@@ -2392,6 +2464,7 @@ export default function App() {
         />
       )}
 
+      {/* Profile Edit Modal */}
       <Modal visible={showProfileEdit} animationType="slide" transparent onRequestClose={() => setShowProfileEdit(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -2414,24 +2487,7 @@ export default function App() {
         </View>
       </Modal>
 
-      <Modal visible={showInviteModal} animationType="slide" transparent onRequestClose={() => setShowInviteModal(false)}>
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Invite Team Member</Text>
-            <Text style={styles.inputLabel}>Member Email Address</Text>
-            <TextInput style={styles.textInput} placeholder="e.g. colleague@company.com" keyboardType="email-address" value={inviteEmail} onChangeText={setInviteEmail} />
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 20 }}>
-              <TouchableOpacity style={[styles.btn, { backgroundColor: '#6c757d', flex: 1, marginRight: 8 }]} onPress={() => setShowInviteModal(false)}>
-                <Text style={styles.btnText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.btn, { backgroundColor: '#28a745', flex: 1, marginLeft: 8 }]} onPress={handleSendInvite}>
-                <Text style={styles.btnText}>Send Invite</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
+      {/* Purpose Manager Modal */}
       <Modal visible={showPurposeManager} animationType="slide" transparent={false} onRequestClose={() => setShowPurposeManager(false)}>
         <View style={[styles.container, { paddingHorizontal: 20 }]}>
           <View style={styles.screenHeader}>
@@ -2477,6 +2533,7 @@ export default function App() {
         </View>
       </Modal>
 
+      {/* Member Trip Details Modal */}
       <Modal visible={showMemberTripDetails} animationType="slide" transparent={false} onRequestClose={() => setShowMemberTripDetails(false)}>
         <View style={[styles.container, { paddingHorizontal: 20 }]}>
           <View style={styles.screenHeader}>
@@ -2503,17 +2560,21 @@ export default function App() {
         </View>
       </Modal>
 
+      {/* Subscription Modal - Personal Plans Only */}
       <Modal visible={showSubscriptionModal} animationType="slide" transparent={false} onRequestClose={() => setShowSubscriptionModal(false)}>
         <View style={[styles.container, { paddingHorizontal: 20 }]}>
           <View style={styles.screenHeader}>
             <TouchableOpacity onPress={() => setShowSubscriptionModal(false)}><Text style={styles.backLink}>← Close</Text></TouchableOpacity>
-            <Text style={styles.headerTitle}>Plans & Pricing</Text>
+            <Text style={styles.headerTitle}>Personal Plans</Text>
           </View>
           <ScrollView style={{ flex: 1 }}>
             {Object.keys(TIER_CONFIG).map((tierKey) => {
+              // Only show personal plans, not group plans
+              if (tierKey === 'Group Basic' || tierKey === 'Group Pro') return null;
+              
               const cfg = TIER_CONFIG[tierKey];
               const isCurrent = subscriptionTier === tierKey;
-              const paidTiers = ['Personal Basic', 'Personal Pro', 'Group Basic', 'Group Pro'];
+              const paidTiers = ['Personal Basic', 'Personal Pro'];
               const isPaid = paidTiers.includes(tierKey);
 
               return (
@@ -2544,6 +2605,7 @@ export default function App() {
         </View>
       </Modal>
 
+      {/* Edit Trip Modal */}
       <Modal visible={editingTrip !== null} animationType="slide" transparent onRequestClose={() => setEditingTrip(null)}>
         <View style={styles.modalOverlay}>
           <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
@@ -2579,6 +2641,7 @@ export default function App() {
         </View>
       </Modal>
 
+      {/* Year Picker Modal */}
       <Modal visible={showYearPicker} transparent animationType="fade" onRequestClose={() => setShowYearPicker(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowYearPicker(false)}>
           <View style={styles.pickerModalContent}>
@@ -2589,6 +2652,7 @@ export default function App() {
         </TouchableOpacity>
       </Modal>
 
+      {/* Month Picker Modal */}
       <Modal visible={showMonthPicker} transparent animationType="fade" onRequestClose={() => setShowMonthPicker(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowMonthPicker(false)}>
           <View style={styles.pickerModalContent}>
@@ -2601,6 +2665,7 @@ export default function App() {
         </TouchableOpacity>
       </Modal>
 
+      {/* Payment Modal */}
       <PaymentModal
         visible={showPaymentModal}
         onClose={() => {
@@ -2696,8 +2761,6 @@ const styles = StyleSheet.create({
   statLbl: { fontSize: 13, color: '#888', marginTop: 2 },
   statDivider: { width: 1, height: '80%', backgroundColor: '#eee' },
   groupDashboardSection: { marginTop: 10, marginBottom: 15 },
-  inviteSmallBtn: { backgroundColor: '#28a745', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6 },
-  inviteSmallBtnText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
   subSectionTitle: { fontSize: 14, fontWeight: 'bold', color: '#555', marginBottom: 8, marginTop: 5 },
   teamMemberRow: { backgroundColor: '#fff', padding: 12, borderRadius: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, elevation: 1 },
   memberName: { fontSize: 14, fontWeight: 'bold', color: '#333' },
