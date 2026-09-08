@@ -1840,9 +1840,10 @@ export default function App() {
       const buffer = await workbook.xlsx.writeBuffer();
       const base64String = arrayBufferToBase64(buffer);
 
-      await FileSystem.writeAsStringAsync(filePath, base64String, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+          const encodingType = FileSystem.EncodingType ? FileSystem.EncodingType.Base64 : 'base64';
+    await FileSystem.writeAsStringAsync(filePath, base64String, {
+      encoding: encodingType,
+    });
 
       const fileInfo = await FileSystem.getInfoAsync(filePath);
       if (!fileInfo.exists) {
