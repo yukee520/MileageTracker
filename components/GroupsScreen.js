@@ -506,6 +506,7 @@ const GroupsScreen = ({ user, onRefresh }) => {
       </ScrollView>
     );
   }
+  }
 
   // ============================================================
   // HAS GROUP VIEW
