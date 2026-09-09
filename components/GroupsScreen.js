@@ -31,16 +31,30 @@ const GroupsScreen = ({ user, onRefresh }) => {
   const [showSearchGroup, setShowSearchGroup] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [processing, setProcessing] = useState(false);
+  const [error, setError] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
 
   useEffect(() => {
     console.log('📱 GroupsScreen mounted');
+    console.log('👤 User object:', user);
     loadGroupData();
   }, []);
 
   const loadGroupData = async () => {
     try {
       console.log('🔍 loadGroupData called');
+      setError(null);
       setLoading(true);
+      
+      // Check if user exists
+      if (!user) {
+        console.error('❌ User is null or undefined');
+        setError('User not found. Please log in again.');
+        setLoading(false);
+        return;
+      }
+
+      console.log('📡 Fetching profile for user ID:', user.id);
       
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
@@ -49,51 +63,102 @@ const GroupsScreen = ({ user, onRefresh }) => {
         .single();
 
       if (profileError) {
-        console.error('❌ Profile error:', profileError);
+        console.error('❌ Profile fetch error:', profileError);
+        setError('Failed to load profile: ' + profileError.message);
         setLoading(false);
         return;
       }
 
-      console.log('✅ Profile:', profile);
-      const hasValidTeam = profile.team_id !== null && profile.team_id !== undefined;
+      console.log('✅ Profile fetched:', profile);
+      console.log('📊 Profile data:', JSON.stringify(profile, null, 2));
+
+      // Handle case where profile is null
+      if (!profile) {
+        console.warn('⚠️ No profile found for user');
+        setHasGroup(false);
+        setIsGroupAdmin(false);
+        setGroupInfo(null);
+        setGroupMembers([]);
+        setPendingRequests([]);
+        setLoading(false);
+        return;
+      }
+
+      const hasValidTeam = profile.team_id !== null && profile.team_id !== undefined && profile.team_id !== '';
+      console.log('🏷️ Has valid team:', hasValidTeam, 'Team ID:', profile.team_id);
+      
       setHasGroup(hasValidTeam);
       setIsGroupAdmin(profile.role === 'leader' && hasValidTeam);
 
       if (hasValidTeam && profile.team_id) {
-        const teamResult = await GroupService.getGroupDetails(profile.team_id);
-        if (teamResult.success) {
-          setGroupInfo(teamResult.data);
+        console.log('📡 Fetching group details for team:', profile.team_id);
+        
+        // Try to get group details
+        try {
+          const teamResult = await GroupService.getGroupDetails(profile.team_id);
+          if (teamResult.success) {
+            console.log('✅ Group details fetched:', teamResult.data);
+            setGroupInfo(teamResult.data);
+          } else {
+            console.warn('⚠️ Failed to fetch group details:', teamResult.error);
+            setError('Failed to load group details: ' + (teamResult.error || 'Unknown error'));
+          }
+        } catch (teamError) {
+          console.error('❌ Error fetching group details:', teamError);
+          setError('Error loading group: ' + teamError.message);
         }
 
-        const membersResult = await GroupService.getGroupMembers(profile.team_id);
-        if (membersResult.success) {
-          setGroupMembers(membersResult.data || []);
+        // Get members
+        try {
+          const membersResult = await GroupService.getGroupMembers(profile.team_id);
+          if (membersResult.success) {
+            console.log('✅ Members fetched:', membersResult.data?.length || 0, 'members');
+            setGroupMembers(membersResult.data || []);
+          } else {
+            console.warn('⚠️ Failed to fetch members:', membersResult.error);
+          }
+        } catch (membersError) {
+          console.error('❌ Error fetching members:', membersError);
         }
 
+        // Get pending requests (only for leader)
         if (profile.role === 'leader') {
-          const requestsResult = await GroupService.getPendingRequests(profile.team_id);
-          if (requestsResult.success) {
-            setPendingRequests(requestsResult.data || []);
+          try {
+            const requestsResult = await GroupService.getPendingRequests(profile.team_id);
+            if (requestsResult.success) {
+              console.log('✅ Pending requests fetched:', requestsResult.data?.length || 0);
+              setPendingRequests(requestsResult.data || []);
+            } else {
+              console.warn('⚠️ Failed to fetch pending requests:', requestsResult.error);
+            }
+          } catch (requestsError) {
+            console.error('❌ Error fetching pending requests:', requestsError);
           }
         }
       } else {
+        console.log('ℹ️ User has no group');
         setGroupInfo(null);
         setGroupMembers([]);
         setPendingRequests([]);
       }
 
       if (onRefresh) onRefresh();
+      setError(null);
     } catch (error) {
-      console.error('❌ Error loading group data:', error);
-      Alert.alert('Error', 'Failed to load group data: ' + error.message);
+      console.error('❌ CRITICAL ERROR in loadGroupData:', error);
+      console.error('❌ Error stack:', error.stack);
+      setError('Failed to load group data: ' + error.message);
     } finally {
+      console.log('✅ loadGroupData completed, setting loading to false');
       setLoading(false);
       setRefreshing(false);
     }
   };
 
   const onRefreshPull = () => {
+    console.log('🔄 Pull to refresh triggered');
     setRefreshing(true);
+    setRetryCount(retryCount + 1);
     loadGroupData();
   };
 
@@ -308,11 +373,34 @@ const GroupsScreen = ({ user, onRefresh }) => {
     return diff > 0 ? diff : 0;
   };
 
+  // Show error state
+  if (error) {
+    return (
+      <View style={styles.errorContainer}>
+        <Text style={styles.errorIcon}>❌</Text>
+        <Text style={styles.errorTitle}>Something went wrong</Text>
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity 
+          style={styles.errorButton}
+          onPress={() => {
+            setError(null);
+            setRetryCount(retryCount + 1);
+            loadGroupData();
+          }}
+        >
+          <Text style={styles.errorButtonText}>🔄 Try Again</Text>
+        </TouchableOpacity>
+        <Text style={styles.errorRetryText}>Attempt {retryCount + 1}</Text>
+      </View>
+    );
+  }
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#007AFF" />
         <Text style={styles.loadingText}>Loading group data...</Text>
+        <Text style={styles.loadingSubText}>Please wait</Text>
       </View>
     );
   }
@@ -559,8 +647,16 @@ const GroupsScreen = ({ user, onRefresh }) => {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f4f6f8' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  loadingText: { marginTop: 12, color: '#666', fontSize: 14 },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingTop: 60 },
+  loadingText: { marginTop: 12, color: '#666', fontSize: 16 },
+  loadingSubText: { marginTop: 4, color: '#999', fontSize: 12 },
+  errorContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 20, backgroundColor: '#f4f6f8' },
+  errorIcon: { fontSize: 48, marginBottom: 16 },
+  errorTitle: { fontSize: 20, fontWeight: 'bold', color: '#333', marginBottom: 8 },
+  errorText: { fontSize: 14, color: '#666', textAlign: 'center', marginBottom: 20 },
+  errorButton: { backgroundColor: '#007AFF', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 8 },
+  errorButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+  errorRetryText: { fontSize: 12, color: '#999', marginTop: 8 },
   noGroupContainer: { padding: 20, alignItems: 'center' },
   noGroupIcon: { fontSize: 64, marginTop: 40, marginBottom: 16 },
   noGroupTitle: { fontSize: 24, fontWeight: 'bold', color: '#1a1a1a' },
