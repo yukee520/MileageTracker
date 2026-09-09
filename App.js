@@ -103,6 +103,7 @@ export default function App() {
   const [subscriptionExpiry, setSubscriptionExpiry] = useState(null);
   const [subscriptionStatus, setSubscriptionStatus] = useState('free');
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isAppAdmin, setIsAppAdmin] = useState(false);
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showReferralScreen, setShowReferralScreen] = useState(false);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
@@ -626,9 +627,18 @@ export default function App() {
       // Check if user has a valid team
       const hasValidTeam = currentTeamId !== null && currentTeamId !== undefined;
       
-      // Only set admin if user has a team and role is admin
-      const isUserAdmin = hasValidTeam && currentProfile.role === 'admin';
-      setIsAdmin(isUserAdmin);
+      // App Admin (super admin) - only specific email
+      const APP_ADMIN_EMAIL = 'yukeemc@gmail.com';
+      const isAppAdminCheck = user.email === APP_ADMIN_EMAIL;
+      setIsAppAdmin(isAppAdminCheck);
+      
+      // Group Admin - admin of their group
+      const isGroupAdminCheck = hasValidTeam && currentProfile.role === 'admin';
+      setIsAdmin(isGroupAdminCheck);
+      
+      console.log('📧 User email:', user.email);
+      console.log('👑 App Admin check:', isAppAdminCheck, 'for:', user.email);
+      console.log('👥 Group Admin check:', isGroupAdminCheck);
 
       setProfile(currentProfile);
       setDriverName(currentProfile.full_name || '');
