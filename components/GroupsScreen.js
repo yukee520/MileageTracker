@@ -108,7 +108,7 @@ const GroupsScreen = ({ user, onRefresh }) => {
     const hasValidTeam = profile.team_id !== null && profile.team_id !== undefined && profile.team_id !== '';
       console.log('📊 Setting hasGroup:', hasValidTeam);
     setHasGroup(hasValidTeam);
-      setIsAdmin(profile.role === 'admin' && hasValidTeam);
+      setIsAdmin(profile.role === 'leader' && hasValidTeam);
 
       if (hasValidTeam && profile.team_id) {
         // Get group details
@@ -127,7 +127,7 @@ const GroupsScreen = ({ user, onRefresh }) => {
         }
 
         // Get pending requests (only for admin)
-        if (profile.role === 'admin') {
+        if (profile.role === 'leader') {
           console.log('📡 Fetching pending requests...');
     const requestsResult = await GroupService.getPendingRequests(profile.team_id);
           if (requestsResult.success) {
@@ -257,7 +257,7 @@ const GroupsScreen = ({ user, onRefresh }) => {
               // Promote new admin
               const { error: promoteError } = await supabase
                 .from('profiles')
-                .update({ role: 'admin' })
+                .update({ role: 'leader' })
                 .eq('id', member.id);
 
               if (promoteError) throw promoteError;
@@ -521,8 +521,8 @@ const GroupsScreen = ({ user, onRefresh }) => {
         <View style={styles.groupHeaderRow}>
           <Text style={styles.groupName}>{groupInfo?.name || 'Your Group'}</Text>
           {isAdmin && (
-            <View style={styles.adminBadge}>
-              <Text style={styles.adminBadgeText}>👑 Admin</Text>
+            <View style={styles.leaderBadge}>
+              <Text style={styles.leaderBadgeText}>👑 Leader</Text>
             </View>
           )}
         </View>
@@ -611,9 +611,9 @@ const GroupsScreen = ({ user, onRefresh }) => {
               </Text>
               <Text style={[
                 styles.memberRole,
-                member.role === 'admin' && styles.adminRoleText
+                member.role === 'leader' && styles.adminRoleText
               ]}>
-                {member.role === 'admin' ? '👑 Admin' : 'Member'}
+                {member.role === 'leader' ? '👑 Admin' : 'Member'}
               </Text>
             </View>
             <View style={styles.memberRight}>

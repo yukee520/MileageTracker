@@ -238,8 +238,8 @@ const AdminGroupPanel = ({ user, teamId, onClose, onUpdate }) => {
               <View key={member.id} style={styles.memberCard}>
                 <View style={styles.memberInfo}>
                   <Text style={styles.memberName}>{member.full_name || 'Unknown'}</Text>
-                  <Text style={[styles.memberRole, member.role === 'admin' && styles.adminRole]}>
-                    {member.role === 'admin' ? '👑 ADMIN' : 'MEMBER'}
+                  <Text style={[styles.memberRole, member.role === 'leader' && styles.adminRole]}>
+                    {member.role === 'leader' ? '👑 ADMIN' : 'MEMBER'}
                   </Text>
                 </View>
                 <Text style={styles.memberEmail}>{member.email}</Text>

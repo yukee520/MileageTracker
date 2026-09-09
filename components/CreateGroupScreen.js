@@ -73,9 +73,9 @@ const CreateGroupScreen = ({ user, onClose, onGroupCreated }) => {
 
         <View style={styles.content}>
           <View style={styles.infoCard}>
-            <Text style={styles.infoTitle}>👑 You'll be the Group Admin</Text>
+            <Text style={styles.infoTitle}>👑 You'll be the Group Leader</Text>
             <Text style={styles.infoText}>
-              As the admin, you can approve members and manage group subscription.
+              As the leader, you can approve members and manage group subscription.
             </Text>
           </View>
 

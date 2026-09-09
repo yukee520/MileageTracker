@@ -632,8 +632,8 @@ export default function App() {
       const isAppAdminCheck = user.email === APP_ADMIN_EMAIL;
       setIsAppAdmin(isAppAdminCheck);
       
-      // Group Admin - admin of their group
-      const isGroupAdminCheck = hasValidTeam && currentProfile.role === 'admin';
+      // Group Admin (leader) - leader of their group
+      const isGroupAdminCheck = hasValidTeam && currentProfile.role === 'leader';
       setIsAdmin(isGroupAdminCheck);
       
       console.log('📧 User email:', user.email);
@@ -2337,7 +2337,7 @@ export default function App() {
                     >
                       <View style={{ flex: 1 }}>
                         <Text style={styles.memberName}>
-                          {member.name} {member.role === 'admin' && '(Admin)'} <Text style={styles.memberRole}>({member.role})</Text>
+                          {member.name} {member.role === 'leader' && '(Admin)'} <Text style={styles.memberRole}>({member.role})</Text>
                         </Text>
                         <Text style={styles.memberStats}>{stats.totalTrips} trips completed • {stats.totalDistance} km</Text>
                       </View>
