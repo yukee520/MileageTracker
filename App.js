@@ -2252,6 +2252,17 @@ export default function App() {
                 {isTripActive ? '🔴 TRIP IN PROGRESS' : '🚗 START NEW TRIP'}
               </Text>
             </TouchableOpacity>
+            
+            {/* Debug: Open Groups Tab */}
+            <TouchableOpacity 
+              style={[styles.startTripBtn, { backgroundColor: '#6f42c1', marginTop: 10 }]}
+              onPress={() => {
+                console.log('🔘 Debug: Opening Groups tab from Home');
+                setActiveTab('groups');
+              }}
+            >
+              <Text style={styles.startTripBtnText}>👥 OPEN GROUPS TAB (DEBUG)</Text>
+            </TouchableOpacity>
           </ScrollView>
         )}
 

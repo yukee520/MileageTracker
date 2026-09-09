@@ -23,6 +23,34 @@ const SUPABASE_ANON_KEY = 'sb_publishable_7CXIRyhWhmsQfRfj9dDhWw_Z2efV6fx';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const GroupsScreen = ({ user, onRefresh }) => {
+  
+  // Error boundary - catch any rendering errors
+  const [renderError, setRenderError] = useState(null);
+
+  useEffect(() => {
+    console.log('📱 GroupsScreen mounted');
+    return () => console.log('📱 GroupsScreen unmounted');
+  }, []);
+
+  // Add error state to UI
+  if (renderError) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={{ fontSize: 18, color: '#dc3545', marginBottom: 10 }}>❌ Error Loading Groups</Text>
+        <Text style={{ color: '#666', textAlign: 'center', marginHorizontal: 20 }}>{renderError}</Text>
+        <TouchableOpacity 
+          style={{ marginTop: 20, padding: 12, backgroundColor: '#007AFF', borderRadius: 8 }}
+          onPress={() => {
+            setRenderError(null);
+            loadGroupData();
+          }}
+        >
+          <Text style={{ color: '#fff', fontWeight: 'bold' }}>🔄 Try Again</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [groupInfo, setGroupInfo] = useState(null);
@@ -44,42 +72,72 @@ const GroupsScreen = ({ user, onRefresh }) => {
   }, []);
 
   const loadGroupData = async () => {
+    console.log('🔍 loadGroupData called');
+    console.log('👤 User ID:', user?.id);
+    console.log('👤 User email:', user?.email);
     try {
-      setLoading(true);
+      console.log('⏳ Setting loading to true');
+    setLoading(true);
+    
+  // Set a timeout to prevent infinite loading
+  const loadingTimeout = setTimeout(() => {
+    console.log('⚠️ Loading timeout - forcing loading to stop');
+    console.log('✅ Setting loading to false');
+    setLoading(false);
+  }, 10000);
+  
+  // Clear timeout when loading completes
+  clearTimeout(loadingTimeout);
       
       // Get user's profile
-      const { data: profile, error: profileError } = await supabase
+      console.log('🔍 Fetching user profile for:', user.id);
+    console.log('📡 Fetching profile from Supabase...');
+    const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('team_id, role')
         .eq('id', user.id)
         .single();
 
-      if (profileError) throw profileError;
+      if (profileError) {
+      console.error('❌ Profile fetch error:', profileError);
+      throw profileError;
+    }
+    console.log('✅ Profile fetched:', profile);
 
-      const hasValidTeam = profile.team_id !== null && profile.team_id !== undefined && profile.team_id !== '';
-      setHasGroup(hasValidTeam);
+      console.log('🔍 Checking team_id:', profile.team_id);
+    const hasValidTeam = profile.team_id !== null && profile.team_id !== undefined && profile.team_id !== '';
+      console.log('📊 Setting hasGroup:', hasValidTeam);
+    setHasGroup(hasValidTeam);
       setIsAdmin(profile.role === 'admin' && hasValidTeam);
 
       if (hasValidTeam && profile.team_id) {
         // Get group details
-        const teamResult = await GroupService.getGroupDetails(profile.team_id);
-        if (teamResult.success) {
+        console.log('📡 Fetching group details for team:', profile.team_id);
+    const teamResult = await GroupService.getGroupDetails(profile.team_id);
+        console.log('📊 Team result:', teamResult);
+    if (teamResult.success) {
           setGroupInfo(teamResult.data);
         }
 
         // Get members
-        const membersResult = await GroupService.getGroupMembers(profile.team_id);
+        console.log('📡 Fetching group members...');
+    const membersResult = await GroupService.getGroupMembers(profile.team_id);
         if (membersResult.success) {
           setGroupMembers(membersResult.data || []);
         }
 
         // Get pending requests (only for admin)
         if (profile.role === 'admin') {
-          const requestsResult = await GroupService.getPendingRequests(profile.team_id);
+          console.log('📡 Fetching pending requests...');
+    const requestsResult = await GroupService.getPendingRequests(profile.team_id);
           if (requestsResult.success) {
             setPendingRequests(requestsResult.data || []);
           }
         } else {
+      console.log('ℹ️ User has no group (team_id is null)');
+      setGroupInfo(null);
+      setGroupMembers([]);
+      setPendingRequests([]);
           setPendingRequests([]);
         }
       } else {
@@ -90,9 +148,22 @@ const GroupsScreen = ({ user, onRefresh }) => {
 
       if (onRefresh) onRefresh();
     } catch (error) {
-      console.error('Error loading group data:', error);
+    console.error('❌ CRITICAL ERROR in loadGroupData:', error);
+    console.error('❌ Error stack:', error.stack);
+      console.error('❌ Error in loadGroupData:', error);
+      console.error('❌ Error stack:', error.stack);
+      console.log('✅ Setting loading to false');
+    setLoading(false);
+      setRefreshing(false);
+      console.error('❌ Error loading group data:', error);
+      console.error('❌ Error details:', error.message, error.stack);
+      // Set loading to false even on error
+      console.log('✅ Setting loading to false');
+    setLoading(false);
+      setRefreshing(false);
     } finally {
-      setLoading(false);
+      console.log('✅ Setting loading to false');
+    setLoading(false);
       setRefreshing(false);
     }
   };
@@ -359,11 +430,21 @@ const GroupsScreen = ({ user, onRefresh }) => {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={[styles.loadingContainer, { paddingTop: 60 }]}>
         <ActivityIndicator size="large" color="#007AFF" />
-        <Text style={styles.loadingText}>Loading...</Text>
+        <Text style={styles.loadingText}>Loading group data...</Text>
+        <TouchableOpacity 
+          style={{ marginTop: 20, padding: 12, backgroundColor: '#007AFF', borderRadius: 8 }}
+          onPress={() => {
+            console.log('🔄 Manual refresh triggered');
+            loadGroupData();
+          }}
+        >
+          <Text style={{ color: '#fff', fontWeight: 'bold' }}>🔄 Retry</Text>
+        </TouchableOpacity>
       </View>
     );
+  }
   }
 
   // ============================================================
