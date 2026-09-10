@@ -53,7 +53,6 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedTier, setSelectedTier] = useState(null);
   const [activeSection, setActiveSection] = useState('requests');
-  const [showTransferModal, setShowTransferModal] = useState(false);
 
   const isMounted = useRef(true);
   const isLoadingRef = useRef(false);
@@ -155,20 +154,6 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
     console.log('🔄 Pull to refresh');
     setRefreshing(true);
     loadGroupData();
-  };
-
-  // ============================================================
-  // PAID-PLAN CHECK (used to block dismissal)
-  // ============================================================
-  const hasActivePaidGroupPlan = () => {
-    if (!groupInfo) return false;
-    const tier = groupInfo.subscription_tier;
-    const paidTiers = ['team_basic', 'team_pro'];
-    if (!paidTiers.includes(tier)) return false;
-    if (groupInfo.payment_status !== 'active') return false;
-    const expiry = groupInfo.subscription_end_date ? new Date(groupInfo.subscription_end_date) : null;
-    if (expiry && expiry < new Date()) return false;
-    return true;
   };
 
   const handleRequest = async (requestId, userId, action) => {
@@ -364,17 +349,6 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
   };
 
   const handleDismissGroup = () => {
-    if (hasActivePaidGroupPlan()) {
-      const expiry = groupInfo.subscription_end_date
-        ? new Date(groupInfo.subscription_end_date).toLocaleDateString()
-        : 'unknown date';
-      Alert.alert(
-        'Cannot Dismiss Group',
-        `This group has an active ${groupInfo.subscription_tier === 'team_pro' ? 'Group Pro' : 'Group Basic'} subscription until ${expiry}.\n\nYou can dismiss the group after the subscription expires.`
-      );
-      return;
-    }
-
     Alert.alert(
       'Dismiss Group',
       '⚠️ Warning: This will permanently delete the group and remove all members.\n\nAll join requests will also be deleted.',
@@ -443,55 +417,6 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
     );
   };
 
-  // ============================================================
-  // TRANSFER LEADERSHIP
-  // ============================================================
-  const openTransferModal = () => {
-    const others = groupMembers.filter(m => m.id !== user.id);
-    if (others.length === 0) {
-      Alert.alert('No Members', 'You need at least one other member to transfer leadership.');
-      return;
-    }
-    setShowTransferModal(true);
-  };
-
-  const handleTransferLeadership = (targetMember) => {
-    Alert.alert(
-      'Transfer Leadership',
-      `Transfer leadership to ${targetMember.full_name || targetMember.email}?\n\nYou will become a regular member and lose leader privileges.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Transfer',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setProcessing(true);
-              setShowTransferModal(false);
-
-              const result = await GroupService.transferAdmin(
-                groupInfo?.id,
-                user.id,
-                targetMember.id
-              );
-
-              if (!result.success) throw new Error(result.error || 'Transfer failed');
-
-              Alert.alert('Success', `${targetMember.full_name || targetMember.email} is now the group leader.`);
-              await loadGroupData();
-              if (onRefresh) onRefresh();
-            } catch (error) {
-              console.error('Error transferring leadership:', error);
-              Alert.alert('Error', 'Failed to transfer leadership: ' + error.message);
-            } finally {
-              setProcessing(false);
-            }
-          }
-        }
-      ]
-    );
-  };
-
   const handleLeaveGroup = () => {
     Alert.alert(
       'Leave Group',
@@ -550,13 +475,7 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
 
   const getMemberCount = () => groupMembers.length || 1;
 
-  const getSubscriptionStatus = () => {
-    if (!groupInfo) return 'Group Free';
-    const tier = groupInfo.subscription_tier;
-    if (tier === 'team_basic') return 'Group Basic';
-    if (tier === 'team_pro') return 'Group Pro';
-    return 'Group Free';
-  };
+  const getSubscriptionStatus = () => groupInfo?.subscription_tier || 'Personal Free';
 
   if (loading) {
     return (
@@ -629,6 +548,7 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
       style={styles.container}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
     >
+      {/* ======================= GROUP HEADER ======================= */}
       <View style={styles.groupHeader}>
         <View style={styles.groupHeaderRow}>
           <Text style={styles.groupName} numberOfLines={1}>
@@ -667,6 +587,7 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
         <Text style={styles.groupPlan}>📊 Plan: {getSubscriptionStatus()}</Text>
       </View>
 
+      {/* ======================= TAB BUTTONS ======================= */}
       <View style={styles.tabBar}>
         {isGroupLeader && (
           <TouchableOpacity
@@ -698,6 +619,7 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
         )}
       </View>
 
+      {/* ======================= REQUESTS TAB ======================= */}
       {isGroupLeader && activeSection === 'requests' && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>📨 Pending Requests ({pendingRequests.length})</Text>
@@ -737,6 +659,7 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
         </View>
       )}
 
+      {/* ======================= MEMBERS TAB ======================= */}
       {activeSection === 'members' && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>👥 Members ({groupMembers.length})</Text>
@@ -777,31 +700,21 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
           })}
 
           {isGroupLeader && (
-            <>
-              <TouchableOpacity
-                style={[styles.reportButton, { marginTop: 12 }]}
-                onPress={handleExportTeamReport}
-                disabled={exporting}
-              >
-                <Text style={styles.reportButtonText}>
-                  {exporting ? '⏳ Generating...' : '📋 Export Team Trip Report'}
-                </Text>
-                <Text style={styles.reportButtonSub}>Export all team members' trips to Excel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.transferBtn, { marginTop: 10 }]}
-                onPress={openTransferModal}
-                disabled={processing}
-              >
-                <Text style={styles.transferBtnText}>👑 Transfer Leadership</Text>
-                <Text style={styles.transferBtnSub}>Pass the leader role to another member</Text>
-              </TouchableOpacity>
-            </>
+            <TouchableOpacity
+              style={[styles.reportButton, { marginTop: 12 }]}
+              onPress={handleExportTeamReport}
+              disabled={exporting}
+            >
+              <Text style={styles.reportButtonText}>
+                {exporting ? '⏳ Generating...' : '📋 Export Team Trip Report'}
+              </Text>
+              <Text style={styles.reportButtonSub}>Export all team members' trips to Excel</Text>
+            </TouchableOpacity>
           )}
         </View>
       )}
 
+      {/* ======================= SUBSCRIPTION TAB ======================= */}
       {isGroupLeader && activeSection === 'subscription' && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>💳 Group Subscription</Text>
@@ -871,49 +784,6 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
         </Modal>
       )}
 
-      {/* Transfer Leadership Picker */}
-      <Modal
-        visible={showTransferModal}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setShowTransferModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>👑 Transfer Leadership</Text>
-            <Text style={{ color: '#666', marginBottom: 12 }}>
-              Choose a member to become the new group leader. You will become a regular member.
-            </Text>
-            <ScrollView style={{ maxHeight: 300 }}>
-              {groupMembers
-                .filter(m => m.id !== user.id)
-                .map((member) => (
-                  <TouchableOpacity
-                    key={member.id}
-                    style={styles.transferMemberRow}
-                    onPress={() => handleTransferLeadership(member)}
-                    disabled={processing}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.transferMemberName}>
-                        {member.full_name || 'Unknown'}
-                      </Text>
-                      <Text style={styles.transferMemberEmail}>{member.email}</Text>
-                    </View>
-                    <Text style={styles.transferMemberArrow}>→</Text>
-                  </TouchableOpacity>
-                ))}
-            </ScrollView>
-            <TouchableOpacity
-              style={[styles.btn, { backgroundColor: '#6c757d', marginTop: 12 }]}
-              onPress={() => setShowTransferModal(false)}
-            >
-              <Text style={styles.btnText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
       {showPaymentModal && (
         <PaymentModal
           visible={showPaymentModal}
@@ -928,22 +798,6 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
           onPaymentSuccess={handlePaymentSuccess}
           onPaymentError={() => setShowPaymentModal(false)}
           onPaymentCancel={() => setShowPaymentModal(false)}
-        />
-      )}
-
-      {showCreateGroup && (
-        <CreateGroupScreen
-          user={user}
-          onClose={() => { setShowCreateGroup(false); loadGroupData(); }}
-          onGroupCreated={() => { setShowCreateGroup(false); loadGroupData(); }}
-        />
-      )}
-
-      {showSearchGroup && (
-        <GroupSearchScreen
-          user={user}
-          onClose={() => { setShowSearchGroup(false); loadGroupData(); }}
-          onJoinGroup={() => { setShowSearchGroup(false); loadGroupData(); }}
         />
       )}
     </ScrollView>
@@ -1001,7 +855,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#f5c6cb'
   },
-  iconDangerText: { fontSize: 18 },
+  iconDangerText: {
+    fontSize: 18
+  },
   groupName: { fontSize: 24, fontWeight: 'bold', color: '#1a1a1a', flex: 1, marginRight: 8 },
   groupDescription: { fontSize: 14, color: '#666', marginTop: 4 },
   groupLeader: { fontSize: 14, color: '#666', marginTop: 8 },
@@ -1030,9 +886,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center'
   },
-  tabBtnActive: { backgroundColor: '#007AFF' },
-  tabBtnText: { fontSize: 13, fontWeight: '600', color: '#555' },
-  tabBtnTextActive: { color: '#fff' },
+  tabBtnActive: {
+    backgroundColor: '#007AFF'
+  },
+  tabBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#555'
+  },
+  tabBtnTextActive: {
+    color: '#fff'
+  },
 
   section: {
     backgroundColor: '#fff',
@@ -1109,18 +973,6 @@ const styles = StyleSheet.create({
   },
   reportButtonText: { fontSize: 16, fontWeight: 'bold', color: '#2e7d32' },
   reportButtonSub: { fontSize: 12, color: '#666', marginTop: 2 },
-
-  transferBtn: {
-    backgroundColor: '#ede7f6',
-    padding: 16,
-    borderRadius: 10,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#d1c4e9'
-  },
-  transferBtnText: { fontSize: 16, fontWeight: 'bold', color: '#6f42c1' },
-  transferBtnSub: { fontSize: 12, color: '#666', marginTop: 2 },
-
   modalContainer: { flex: 1, backgroundColor: '#f4f6f8' },
   modalHeader: {
     flexDirection: 'row',
@@ -1133,33 +985,8 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e0e0e0'
   },
   modalBack: { fontSize: 16, color: '#007AFF' },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#1a1a1a', marginBottom: 8 },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#1a1a1a' },
   modalContent: { flex: 1, padding: 16 },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    paddingHorizontal: 20
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    elevation: 5,
-    maxHeight: '80%'
-  },
-
-  transferMemberRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0'
-  },
-  transferMemberName: { fontSize: 15, fontWeight: 'bold', color: '#333' },
-  transferMemberEmail: { fontSize: 12, color: '#888' },
-  transferMemberArrow: { fontSize: 18, color: '#6f42c1' },
-
   tripCard: {
     backgroundColor: '#fff',
     padding: 12,
@@ -1171,9 +998,7 @@ const styles = StyleSheet.create({
   tripDetails: { fontSize: 12, color: '#555', marginTop: 2 },
   tripDistance: { fontSize: 12, color: '#007AFF', marginTop: 2 },
   tripPurpose: { fontSize: 12, color: '#888', marginTop: 2 },
-  emptyText: { textAlign: 'center', color: '#999', padding: 20 },
-  btn: { padding: 15, borderRadius: 8, alignItems: 'center' },
-  btnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' }
+  emptyText: { textAlign: 'center', color: '#999', padding: 20 }
 });
 
 export default GroupsScreen;

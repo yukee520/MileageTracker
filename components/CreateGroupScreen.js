@@ -9,7 +9,12 @@ import {
   Alert,
   Modal
 } from 'react-native';
+import { createClient } from '@supabase/supabase-js';
 import GroupService from '../services/GroupService';
+
+const SUPABASE_URL = 'https://dkpjicqepexhgbrzzreo.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_7CXIRyhWhmsQfRfj9dDhWw_Z2efV6fx';
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const CreateGroupScreen = ({ user, onClose, onGroupCreated }) => {
   const [groupName, setGroupName] = useState('');
@@ -29,6 +34,23 @@ const CreateGroupScreen = ({ user, onClose, onGroupCreated }) => {
 
     try {
       setLoading(true);
+      
+      // Check if user already has a group
+      const { data: profile, error: profileError } = await supabase
+        .from('profiles')
+        .select('team_id, subscription_tier, subscription_expiry')
+        .eq('id', user.id)
+        .single();
+
+      if (profileError) throw profileError;
+
+      if (profile.team_id) {
+        Alert.alert('Already in a Group', 'You are already in a group. Please leave your current group first.');
+        setLoading(false);
+        return;
+      }
+
+      // Create the group
       const result = await GroupService.createGroup(
         user.id,
         groupName.trim(),
@@ -36,9 +58,34 @@ const CreateGroupScreen = ({ user, onClose, onGroupCreated }) => {
       );
 
       if (result.success) {
+        // IMPORTANT: Preserve the user's personal subscription
+        // The user's subscription_tier and subscription_expiry should remain unchanged
+        // Only team_id should be updated
+        
+        // Update the team to show it's a free group (not personal)
+        const teamId = result.data.id;
+        await supabase
+          .from('teams')
+          .update({
+            subscription_tier: 'personal_free', // Group shows as Free
+            monthly_trip_limit: 30,
+            max_members: 10
+          })
+          .eq('id', teamId);
+
+        // Update user's profile to join the group BUT KEEP personal subscription
+        await supabase
+          .from('profiles')
+          .update({
+            team_id: teamId,
+            role: 'leader',
+            // DO NOT change subscription_tier or subscription_expiry
+          })
+          .eq('id', user.id);
+
         Alert.alert(
           '🎉 Group Created!',
-          `"${groupName.trim()}" has been created. You are now the group admin.\n\nYou can now:\n• Approve join requests\n• Manage subscription\n• Invite others to join`,
+          `"${groupName.trim()}" has been created.\n\nYour personal subscription remains active until ${profile.subscription_expiry ? new Date(profile.subscription_expiry).toLocaleDateString() : 'expired'}.\n\nYou are now the group leader.`,
           [
             {
               text: 'OK',
@@ -50,11 +97,19 @@ const CreateGroupScreen = ({ user, onClose, onGroupCreated }) => {
           ]
         );
       } else {
-        Alert.alert('Error', result.error || 'Failed to create group');
+        if (result.error && result.error.includes('already taken')) {
+          Alert.alert(
+            'Group Name Already Taken',
+            result.error,
+            [{ text: 'OK', onPress: () => setGroupName('') }]
+          );
+        } else {
+          Alert.alert('Error', result.error || 'Failed to create group');
+        }
       }
     } catch (error) {
       console.error('Create group error:', error);
-      Alert.alert('Error', 'Failed to create group');
+      Alert.alert('Error', 'Failed to create group: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -76,6 +131,7 @@ const CreateGroupScreen = ({ user, onClose, onGroupCreated }) => {
             <Text style={styles.infoTitle}>👑 You'll be the Group Leader</Text>
             <Text style={styles.infoText}>
               As the leader, you can approve members and manage group subscription.
+              {'\n\n'}Your personal subscription will remain active.
             </Text>
           </View>
 
@@ -87,6 +143,7 @@ const CreateGroupScreen = ({ user, onClose, onGroupCreated }) => {
               value={groupName}
               onChangeText={setGroupName}
               maxLength={50}
+              autoFocus={true}
             />
 
             <Text style={styles.label}>Description (Optional)</Text>

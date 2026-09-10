@@ -1,0 +1,2183 @@
+   1  p=  0 b=  0 c=  0  |import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+   2  p=  0 b=  0 c=  0  |import { StyleSheet, Text, View, TouchableOpacity, ScrollView, ActivityIndicator, Alert, TextInput, Modal, Share, Platform, Linking, AppState } from 'react-native';
+   6  p=  0 b=  0 c=  0  |import { createClient } from '@supabase/supabase-js';
+  25  p=  1 b=  1 c=  0  |TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
+  26  p=  1 b=  2 c=  0  |  if (error) {
+  27  p=  1 b=  2 c=  0  |    console.error('Background location error:', error);
+  29  p=  1 b=  1 c=  0  |  }
+  30  p=  1 b=  2 c=  0  |  if (data) {
+  31  p=  1 b=  2 c=  0  |    const { locations } = data;
+  32  p=  1 b=  2 c=  0  |    const location = locations[0];
+  33  p=  1 b=  3 c=  0  |    if (location) {
+  34  p=  1 b=  4 c=  0  |      try {
+  35  p=  1 b=  4 c=  0  |        const existing = await AsyncStorage.getItem('@background_route');
+  36  p=  1 b=  4 c=  0  |        const route = existing ? JSON.parse(existing) : [];
+  37  p=  2 b=  5 c=  0  |        route.push({
+  41  p=  1 b=  4 c=  0  |        });
+  42  p=  1 b=  4 c=  0  |        if (route.length > 1000) route.shift();
+  43  p=  1 b=  4 c=  0  |        await AsyncStorage.setItem('@background_route', JSON.stringify(route));
+  44  p=  1 b=  4 c=  0  |      } catch (e) {
+  45  p=  1 b=  4 c=  0  |        console.error('Error saving background location:', e);
+  46  p=  1 b=  3 c=  0  |      }
+  47  p=  1 b=  2 c=  0  |    }
+  48  p=  1 b=  1 c=  0  |  }
+  49  p=  0 b=  0 c=  0  |});
+  56  p=  0 b=  0 c=  0  |const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+  61  p=  0 b=  0 c=  1  |const MONTH_NAMES = [
+  64  p=  0 b=  0 c=  0  |];
+  66  p=  0 b=  1 c=  0  |const DEFAULT_PURPOSES = {
+  67  p=  0 b=  1 c=  0  |  business: ['Client Visit', 'Site Inspection', 'Office Delivery', 'Meeting', 'Business Travel'],
+  68  p=  0 b=  1 c=  0  |  personal: ['Commute', 'Shopping / Groceries', 'Family / Personal', 'Leisure', 'Medical']
+  69  p=  0 b=  0 c=  0  |};
+  71  p=  0 b=  1 c=  0  |const TIER_CONFIG = {
+  72  p=  0 b=  1 c=  0  |  'Personal Free': { limit: 30, excel: false, price: '$0/mo', group: false, db_tier: 'personal_free' },
+  73  p=  0 b=  1 c=  0  |  'Personal Basic': { limit: 100, excel: true, price: '$4.99/mo', group: false, db_tier: 'personal_basic' },
+  74  p=  0 b=  1 c=  0  |  'Personal Pro': { limit: 99999, excel: true, price: '$9.99/mo', group: false, db_tier: 'personal_pro' },
+  75  p=  0 b=  1 c=  0  |  'Group Basic': { limit: 100, maxMembers: 10, excel: true, price: '$7/seat/mo', group: true, db_tier: 'team_basic' },
+  76  p=  0 b=  1 c=  0  |  'Group Pro': { limit: 99999, maxMembers: 25, excel: true, price: '$12/seat/mo', group: true, db_tier: 'team_pro' },
+  77  p=  0 b=  0 c=  0  |};
+  79  p=  0 b=  1 c=  0  |function arrayBufferToBase64(buffer) {
+  80  p=  0 b=  1 c=  0  |  const bytes = new Uint8Array(buffer);
+  83  p=  0 b=  2 c=  0  |  for (let i = 0; i < bytes.length; i += chunkSize) {
+  84  p=  0 b=  2 c=  0  |    const chunk = bytes.subarray(i, i + chunkSize);
+  85  p=  0 b=  2 c=  0  |    binary += String.fromCharCode.apply(null, chunk);
+  86  p=  0 b=  1 c=  0  |  }
+  87  p=  0 b=  1 c=  0  |  return btoa(binary);
+  88  p=  0 b=  0 c=  0  |}
+  90  p=  0 b=  1 c=  0  |export default function App() {
+  91  p=  0 b=  1 c=  0  |  const [currentScreen, setCurrentScreen] = useState('loading');
+  92  p=  0 b=  1 c=  0  |  const [activeTab, setActiveTab] = useState('home');
+  93  p=  0 b=  1 c=  0  |  const [session, setSession] = useState(null);
+  94  p=  0 b=  1 c=  0  |  const [user, setUser] = useState(null);
+  95  p=  0 b=  1 c=  0  |  const [profile, setProfile] = useState(null);
+  96  p=  0 b=  1 c=  0  |  const [userId, setUserId] = useState(null);
+  97  p=  0 b=  1 c=  0  |  const [driverName, setDriverName] = useState('');
+  98  p=  0 b=  1 c=  0  |  const [vehicleInfo, setVehicleInfo] = useState('');
+  99  p=  0 b=  1 c=  0  |  const [userEmail, setUserEmail] = useState('');
+ 100  p=  0 b=  1 c=  0  |  const [subscriptionTier, setSubscriptionTier] = useState('Personal Free');
+ 101  p=  0 b=  1 c=  0  |  const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
+ 102  p=  0 b=  1 c=  0  |  const [teamId, setTeamId] = useState(null);
+ 103  p=  0 b=  1 c=  0  |  const [subscriptionExpiry, setSubscriptionExpiry] = useState(null);
+ 104  p=  0 b=  1 c=  0  |  const [subscriptionStatus, setSubscriptionStatus] = useState('free');
+ 105  p=  0 b=  1 c=  0  |  const [isAdmin, setIsAdmin] = useState(false);
+ 106  p=  0 b=  1 c=  0  |  const [isAppAdmin, setIsAppAdmin] = useState(false);
+ 107  p=  0 b=  1 c=  0  |  const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
+ 108  p=  0 b=  1 c=  0  |  const [showAdminPanel, setShowAdminPanel] = useState(false);
+ 109  p=  0 b=  1 c=  0  |  const [showReferralScreen, setShowReferralScreen] = useState(false);
+ 110  p=  0 b=  1 c=  0  |  const [showProfileEdit, setShowProfileEdit] = useState(false);
+ 111  p=  0 b=  1 c=  0  |  const [editName, setEditName] = useState('');
+ 112  p=  0 b=  1 c=  0  |  const [editEmail, setEditEmail] = useState('');
+ 113  p=  0 b=  1 c=  0  |  const [editVehicle, setEditVehicle] = useState('');
+ 114  p=  0 b=  1 c=  0  |  const [teamMembers, setTeamMembers] = useState([]);
+ 115  p=  0 b=  1 c=  0  |  const [showMemberTripDetails, setShowMemberTripDetails] = useState(false);
+ 116  p=  0 b=  1 c=  0  |  const [selectedMemberTrips, setSelectedMemberTrips] = useState([]);
+ 117  p=  0 b=  1 c=  0  |  const [selectedMemberName, setSelectedMemberName] = useState('');
+ 118  p=  0 b=  1 c=  0  |  const [trips, setTrips] = useState([]);
+ 119  p=  0 b=  1 c=  0  |  const [purposes, setPurposes] = useState(DEFAULT_PURPOSES);
+ 120  p=  0 b=  1 c=  0  |  const [selectedCategory, setSelectedCategory] = useState('Business');
+ 121  p=  0 b=  1 c=  0  |  const [selectedPurpose, setSelectedPurpose] = useState('');
+ 122  p=  0 b=  1 c=  0  |  const [showPurposeManager, setShowPurposeManager] = useState(false);
+ 123  p=  0 b=  1 c=  0  |  const [managerCategory, setManagerCategory] = useState('Business');
+ 124  p=  0 b=  1 c=  0  |  const [newPurposeInput, setNewPurposeInput] = useState('');
+ 125  p=  0 b=  1 c=  0  |  const [editingPurposeIndex, setEditingPurposeIndex] = useState(null);
+ 126  p=  0 b=  1 c=  0  |  const [editingPurposeText, setEditingPurposeText] = useState('');
+ 127  p=  0 b=  1 c=  0  |  const [selectedYear, setSelectedYear] = useState('ALL');
+ 128  p=  0 b=  1 c=  0  |  const [selectedMonthNum, setSelectedMonthNum] = useState('ALL');
+ 129  p=  0 b=  1 c=  0  |  const [showYearPicker, setShowYearPicker] = useState(false);
+ 130  p=  0 b=  1 c=  0  |  const [showMonthPicker, setShowMonthPicker] = useState(false);
+ 131  p=  0 b=  1 c=  0  |  const [loginEmail, setLoginEmail] = useState('');
+ 132  p=  0 b=  1 c=  0  |  const [loginPassword, setLoginPassword] = useState('');
+ 133  p=  0 b=  1 c=  0  |  const [isLogin, setIsLogin] = useState(true);
+ 134  p=  0 b=  1 c=  0  |  const [isLoading, setIsLoading] = useState(false);
+ 135  p=  0 b=  1 c=  0  |  const [isExporting, setIsExporting] = useState(false);
+ 136  p=  0 b=  1 c=  0  |  const [editingTrip, setEditingTrip] = useState(null);
+ 137  p=  0 b=  1 c=  0  |  const [editPurpose, setEditPurpose] = useState('');
+ 138  p=  0 b=  1 c=  0  |  const [editFrom, setEditFrom] = useState('');
+ 139  p=  0 b=  1 c=  0  |  const [editTo, setEditTo] = useState('');
+ 140  p=  0 b=  1 c=  0  |  const [editPlaceName, setEditPlaceName] = useState('');
+ 141  p=  0 b=  1 c=  0  |  const [editDistance, setEditDistance] = useState('');
+ 142  p=  0 b=  1 c=  0  |  const [editCategory, setEditCategory] = useState('Business');
+ 143  p=  0 b=  1 c=  0  |  const [editDate, setEditDate] = useState('');
+ 144  p=  0 b=  1 c=  0  |  const [editTime, setEditTime] = useState('');
+ 145  p=  0 b=  1 c=  0  |  const [tracking, setTracking] = useState(false);
+ 146  p=  0 b=  1 c=  0  |  const [loadingSummary, setLoadingSummary] = useState(false);
+ 147  p=  0 b=  1 c=  0  |  const [route, setRoute] = useState([]);
+ 148  p=  0 b=  1 c=  0  |  const [subscription, setSubscription] = useState(null);
+ 149  p=  0 b=  1 c=  0  |  const [activeTrip, setActiveTrip] = useState(null);
+ 150  p=  0 b=  1 c=  0  |  const [startTime, setStartTime] = useState(null);
+ 151  p=  0 b=  1 c=  0  |  const [viewingTrip, setViewingTrip] = useState(null);
+ 152  p=  0 b=  1 c=  0  |  const [showPaymentModal, setShowPaymentModal] = useState(false);
+ 153  p=  0 b=  1 c=  0  |  const [pendingTierUpgrade, setPendingTierUpgrade] = useState(null);
+ 154  p=  0 b=  1 c=  0  |  const [paymentLoading, setPaymentLoading] = useState(false);
+ 155  p=  0 b=  1 c=  0  |  const [currentAddress, setCurrentAddress] = useState('');
+ 156  p=  0 b=  1 c=  0  |  const [appState, setAppState] = useState(AppState.currentState);
+ 157  p=  0 b=  1 c=  0  |  const [isBackgroundTracking, setIsBackgroundTracking] = useState(false);
+ 158  p=  0 b=  1 c=  0  |  const [isTrackingActive, setIsTrackingActive] = useState(false);
+ 159  p=  0 b=  1 c=  0  |  const [lastLocationUpdate, setLastLocationUpdate] = useState(null);
+ 160  p=  0 b=  1 c=  0  |  const [isTripActive, setIsTripActive] = useState(false);
+ 163  p=  0 b=  1 c=  0  |  const [showCreateGroup, setShowCreateGroup] = useState(false);
+ 164  p=  0 b=  1 c=  0  |  const [showSearchGroup, setShowSearchGroup] = useState(false);
+ 165  p=  0 b=  1 c=  0  |  const [showAdminGroupPanel, setShowAdminGroupPanel] = useState(false);
+ 166  p=  0 b=  1 c=  0  |  const [groupMembers, setGroupMembers] = useState([]);
+ 167  p=  0 b=  1 c=  0  |  const [hasGroup, setHasGroup] = useState(false);
+ 169  p=  0 b=  1 c=  0  |  const [pendingReferralCode, setPendingReferralCode] = useState(null);
+ 170  p=  0 b=  1 c=  0  |  const isLoadingRef = useRef(false);
+ 171  p=  0 b=  1 c=  0  |  const isInitializedRef = useRef(false);
+ 172  p=  0 b=  1 c=  0  |  const isFirstRender = useRef(true);
+ 173  p=  0 b=  1 c=  0  |  const isTrackingRef = useRef(false);
+ 174  p=  0 b=  1 c=  0  |  const routeRef = useRef([]);
+ 175  p=  0 b=  1 c=  0  |  const watchSubscriptionRef = useRef(null);
+ 176  p=  0 b=  1 c=  0  |  const locationUpdateInterval = useRef(null);
+ 181  p=  0 b=  2 c=  0  |  const handleDeepLink = async (url) => {
+ 182  p=  0 b=  3 c=  0  |    try {
+ 183  p=  0 b=  3 c=  0  |      console.log('Deep link received:', url);
+ 184  p=  0 b=  4 c=  0  |      if (url && url.includes('mileagetracker://referral')) {
+ 185  p=  0 b=  4 c=  0  |        const params = new URLSearchParams(url.split('?')[1]);
+ 186  p=  0 b=  4 c=  0  |        const code = params.get('code');
+ 187  p=  0 b=  5 c=  0  |        if (code) {
+ 188  p=  0 b=  5 c=  0  |          console.log('Referral code captured:', code);
+ 189  p=  0 b=  5 c=  0  |          setPendingReferralCode(code);
+ 190  p=  0 b=  5 c=  0  |          await AsyncStorage.setItem('@referral_code', code);
+ 191  p=  1 b=  5 c=  0  |          Alert.alert(
+ 194  p=  1 b=  5 c=  1  |            [
+ 195  p=  1 b=  6 c=  1  |              {
+ 197  p=  1 b=  7 c=  1  |                onPress: () => {
+ 198  p=  1 b=  8 c=  1  |                  if (user?.id) {
+ 199  p=  1 b=  8 c=  1  |                    applyReferralCode(code);
+ 200  p=  1 b=  7 c=  1  |                  }
+ 201  p=  1 b=  6 c=  1  |                }
+ 202  p=  1 b=  5 c=  1  |              }
+ 203  p=  1 b=  5 c=  0  |            ]
+ 204  p=  0 b=  5 c=  0  |          );
+ 205  p=  0 b=  4 c=  0  |        }
+ 206  p=  0 b=  3 c=  0  |      }
+ 207  p=  0 b=  3 c=  0  |    } catch (error) {
+ 208  p=  0 b=  3 c=  0  |      console.error('Error handling deep link:', error);
+ 209  p=  0 b=  2 c=  0  |    }
+ 210  p=  0 b=  1 c=  0  |  };
+ 212  p=  0 b=  2 c=  0  |  const applyReferralCode = async (code) => {
+ 213  p=  0 b=  3 c=  0  |    try {
+ 214  p=  0 b=  3 c=  0  |      const result = await ReferralService.applyReferral(code, user.id);
+ 215  p=  0 b=  4 c=  0  |      if (result.success) {
+ 216  p=  0 b=  4 c=  0  |        Alert.alert('Referral Applied!', 'Your referral code has been applied successfully.');
+ 217  p=  0 b=  4 c=  0  |        await AsyncStorage.removeItem('@referral_code');
+ 218  p=  0 b=  3 c=  0  |      }
+ 219  p=  0 b=  3 c=  0  |    } catch (error) {
+ 220  p=  0 b=  3 c=  0  |      console.error('Error applying referral:', error);
+ 221  p=  0 b=  2 c=  0  |    }
+ 222  p=  0 b=  1 c=  0  |  };
+ 227  p=  1 b=  2 c=  0  |  useEffect(() => {
+ 228  p=  1 b=  3 c=  0  |    const handleInitialUrl = async () => {
+ 229  p=  1 b=  4 c=  0  |      try {
+ 230  p=  1 b=  4 c=  0  |        const url = await Linking.getInitialURL();
+ 231  p=  1 b=  5 c=  0  |        if (url) {
+ 232  p=  1 b=  5 c=  0  |          await handleDeepLink(url);
+ 233  p=  1 b=  4 c=  0  |        }
+ 234  p=  1 b=  4 c=  0  |      } catch (error) {
+ 235  p=  1 b=  4 c=  0  |        console.error('Error getting initial URL:', error);
+ 236  p=  1 b=  3 c=  0  |      }
+ 237  p=  1 b=  2 c=  0  |    };
+ 239  p=  1 b=  2 c=  0  |    handleInitialUrl();
+ 241  p=  2 b=  3 c=  0  |    const subscription = Linking.addEventListener('url', ({ url }) => {
+ 242  p=  2 b=  3 c=  0  |      handleDeepLink(url);
+ 243  p=  1 b=  2 c=  0  |    });
+ 245  p=  1 b=  3 c=  0  |    return () => {
+ 246  p=  1 b=  3 c=  0  |      subscription.remove();
+ 247  p=  1 b=  2 c=  0  |    };
+ 248  p=  0 b=  1 c=  0  |  }, []);
+ 251  p=  1 b=  2 c=  0  |  useEffect(() => {
+ 252  p=  1 b=  3 c=  0  |    const checkSavedReferral = async () => {
+ 253  p=  1 b=  4 c=  0  |      if (user?.id) {
+ 254  p=  1 b=  4 c=  0  |        const savedCode = await AsyncStorage.getItem('@referral_code');
+ 255  p=  1 b=  5 c=  0  |        if (savedCode) {
+ 256  p=  1 b=  5 c=  0  |          await applyReferralCode(savedCode);
+ 257  p=  1 b=  4 c=  0  |        }
+ 258  p=  1 b=  3 c=  0  |      }
+ 259  p=  1 b=  2 c=  0  |    };
+ 261  p=  1 b=  3 c=  0  |    if (user?.id) {
+ 262  p=  1 b=  3 c=  0  |      checkSavedReferral();
+ 263  p=  1 b=  2 c=  0  |    }
+ 264  p=  0 b=  1 c=  0  |  }, [user]);
+ 269  p=  1 b=  2 c=  0  |  useEffect(() => {
+ 270  p=  1 b=  3 c=  0  |    const handleAppStateChange = async (nextAppState) => {
+ 271  p=  1 b=  3 c=  0  |      console.log('App state changed:', appState, '->', nextAppState);
+ 273  p=  1 b=  4 c=  0  |      if (appState.match(/inactive|background/) && nextAppState === 'active') {
+ 274  p=  1 b=  4 c=  0  |        console.log('App came to foreground');
+ 275  p=  1 b=  5 c=  0  |        if (isTrackingRef.current) {
+ 276  p=  1 b=  6 c=  0  |          try {
+ 277  p=  1 b=  6 c=  0  |            const savedRoute = await AsyncStorage.getItem('@background_route');
+ 278  p=  1 b=  7 c=  0  |            if (savedRoute) {
+ 279  p=  1 b=  7 c=  0  |              const bgRoute = JSON.parse(savedRoute);
+ 280  p=  1 b=  8 c=  0  |              if (bgRoute.length > 0) {
+ 281  p=  1 b=  8 c=  0  |                console.log('Restoring background route points:', bgRoute.length);
+ 282  p=  2 b=  9 c=  0  |                setRoute(prev => {
+ 283  p=  2 b=  9 c=  0  |                  const combined = [...prev, ...bgRoute];
+ 284  p=  3 b=  9 c=  0  |                  const unique = combined.filter((point, index, self) =>
+ 286  p=  3 b=  9 c=  0  |                    point.latitude !== self[index-1].latitude ||
+ 287  p=  3 b=  9 c=  0  |                    point.longitude !== self[index-1].longitude
+ 288  p=  2 b=  9 c=  0  |                  );
+ 291  p=  1 b=  8 c=  0  |                });
+ 292  p=  1 b=  8 c=  0  |                await AsyncStorage.removeItem('@background_route');
+ 293  p=  1 b=  7 c=  0  |              }
+ 294  p=  1 b=  6 c=  0  |            }
+ 295  p=  1 b=  6 c=  0  |          } catch (e) {
+ 296  p=  1 b=  6 c=  0  |            console.error('Error restoring background route:', e);
+ 297  p=  1 b=  5 c=  0  |          }
+ 298  p=  1 b=  4 c=  0  |        }
+ 299  p=  1 b=  4 c=  0  |      } else if (nextAppState === 'background' && isTrackingRef.current) {
+ 300  p=  1 b=  4 c=  0  |        console.log('App went to background - starting background tracking');
+ 301  p=  1 b=  4 c=  0  |        await startBackgroundTracking();
+ 302  p=  1 b=  3 c=  0  |      }
+ 303  p=  1 b=  3 c=  0  |      setAppState(nextAppState);
+ 304  p=  1 b=  2 c=  0  |    };
+ 306  p=  1 b=  2 c=  0  |    const subscription = AppState.addEventListener('change', handleAppStateChange);
+ 308  p=  1 b=  3 c=  0  |    return () => {
+ 309  p=  1 b=  3 c=  0  |      subscription.remove();
+ 310  p=  1 b=  2 c=  0  |    };
+ 311  p=  0 b=  1 c=  0  |  }, [appState]);
+ 316  p=  0 b=  2 c=  0  |  const startBackgroundTracking = async () => {
+ 317  p=  0 b=  3 c=  0  |    try {
+ 318  p=  0 b=  3 c=  0  |      console.log('Starting background tracking...');
+ 320  p=  0 b=  3 c=  0  |      const { status } = await Location.getBackgroundPermissionsAsync();
+ 321  p=  0 b=  4 c=  0  |      if (status !== 'granted') {
+ 322  p=  0 b=  4 c=  0  |        const { status: newStatus } = await Location.requestBackgroundPermissionsAsync();
+ 323  p=  0 b=  5 c=  0  |        if (newStatus !== 'granted') {
+ 324  p=  0 b=  5 c=  0  |          console.log('Background permission denied');
+ 326  p=  0 b=  4 c=  0  |        }
+ 327  p=  0 b=  3 c=  0  |      }
+ 329  p=  0 b=  3 c=  0  |      const isTaskRegistered = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
+ 330  p=  0 b=  4 c=  0  |      if (!isTaskRegistered) {
+ 331  p=  1 b=  5 c=  0  |        await Location.startLocationUpdatesAsync(LOCATION_TASK_NAME, {
+ 337  p=  0 b=  4 c=  0  |        });
+ 338  p=  0 b=  3 c=  0  |      }
+ 340  p=  0 b=  3 c=  0  |      setIsBackgroundTracking(true);
+ 341  p=  0 b=  3 c=  0  |      console.log('Background tracking started');
+ 342  p=  0 b=  3 c=  0  |    } catch (error) {
+ 343  p=  0 b=  3 c=  0  |      console.error('Error starting background tracking:', error);
+ 344  p=  0 b=  2 c=  0  |    }
+ 345  p=  0 b=  1 c=  0  |  };
+ 347  p=  0 b=  2 c=  0  |  const stopBackgroundTracking = async () => {
+ 348  p=  0 b=  3 c=  0  |    try {
+ 349  p=  0 b=  3 c=  0  |      console.log('Stopping background tracking...');
+ 350  p=  0 b=  3 c=  0  |      const isTaskRegistered = await TaskManager.isTaskRegisteredAsync(LOCATION_TASK_NAME);
+ 351  p=  0 b=  4 c=  0  |      if (isTaskRegistered) {
+ 352  p=  0 b=  4 c=  0  |        await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
+ 353  p=  0 b=  3 c=  0  |      }
+ 354  p=  0 b=  3 c=  0  |      setIsBackgroundTracking(false);
+ 355  p=  0 b=  3 c=  0  |      console.log('Background tracking stopped');
+ 356  p=  0 b=  3 c=  0  |    } catch (error) {
+ 357  p=  0 b=  3 c=  0  |      console.error('Error stopping background tracking:', error);
+ 358  p=  0 b=  2 c=  0  |    }
+ 359  p=  0 b=  1 c=  0  |  };
+ 362  p=  1 b=  2 c=  0  |  useEffect(() => {
+ 363  p=  1 b=  3 c=  0  |    const restoreTrackingState = async () => {
+ 364  p=  1 b=  4 c=  0  |      try {
+ 365  p=  1 b=  4 c=  0  |        const isTracking = await AsyncStorage.getItem('@is_tracking');
+ 366  p=  1 b=  5 c=  0  |        if (isTracking === 'true') {
+ 367  p=  1 b=  5 c=  0  |          const savedRoute = await AsyncStorage.getItem('@background_route');
+ 368  p=  1 b=  5 c=  0  |          const savedStartTime = await AsyncStorage.getItem('@start_time');
+ 369  p=  1 b=  5 c=  0  |          const savedPurpose = await AsyncStorage.getItem('@selected_purpose');
+ 370  p=  1 b=  5 c=  0  |          const savedCategory = await AsyncStorage.getItem('@selected_category');
+ 372  p=  1 b=  6 c=  0  |          if (savedRoute) {
+ 373  p=  1 b=  6 c=  0  |            const bgRoute = JSON.parse(savedRoute);
+ 374  p=  1 b=  7 c=  0  |            if (bgRoute.length > 0) {
+ 375  p=  1 b=  7 c=  0  |              console.log('Restoring tracking state with', bgRoute.length, 'points');
+ 376  p=  1 b=  7 c=  0  |              setRoute(bgRoute);
+ 378  p=  1 b=  7 c=  0  |              setTracking(true);
+ 380  p=  1 b=  7 c=  0  |              setIsTrackingActive(true);
+ 381  p=  1 b=  7 c=  0  |              setIsTripActive(true);
+ 382  p=  1 b=  7 c=  0  |              if (savedStartTime) setStartTime(new Date(parseInt(savedStartTime)));
+ 383  p=  1 b=  7 c=  0  |              if (savedPurpose) setSelectedPurpose(savedPurpose);
+ 384  p=  1 b=  7 c=  0  |              if (savedCategory) setSelectedCategory(savedCategory);
+ 385  p=  1 b=  6 c=  0  |            }
+ 386  p=  1 b=  5 c=  0  |          }
+ 387  p=  1 b=  4 c=  0  |        }
+ 388  p=  1 b=  4 c=  0  |      } catch (e) {
+ 389  p=  1 b=  4 c=  0  |        console.error('Error restoring tracking state:', e);
+ 390  p=  1 b=  3 c=  0  |      }
+ 391  p=  1 b=  2 c=  0  |    };
+ 392  p=  1 b=  2 c=  0  |    restoreTrackingState();
+ 393  p=  0 b=  1 c=  0  |  }, []);
+ 396  p=  1 b=  2 c=  0  |  useEffect(() => {
+ 397  p=  1 b=  3 c=  0  |    const saveTrackingState = async () => {
+ 398  p=  1 b=  4 c=  0  |      try {
+ 399  p=  1 b=  4 c=  0  |        await AsyncStorage.setItem('@is_tracking', String(isTrackingRef.current));
+ 400  p=  1 b=  5 c=  0  |        if (startTime) {
+ 401  p=  1 b=  5 c=  0  |          await AsyncStorage.setItem('@start_time', String(startTime.getTime()));
+ 402  p=  1 b=  4 c=  0  |        }
+ 403  p=  1 b=  5 c=  0  |        if (selectedPurpose) {
+ 404  p=  1 b=  5 c=  0  |          await AsyncStorage.setItem('@selected_purpose', selectedPurpose);
+ 405  p=  1 b=  4 c=  0  |        }
+ 406  p=  1 b=  5 c=  0  |        if (selectedCategory) {
+ 407  p=  1 b=  5 c=  0  |          await AsyncStorage.setItem('@selected_category', selectedCategory);
+ 408  p=  1 b=  4 c=  0  |        }
+ 409  p=  1 b=  4 c=  0  |      } catch (e) {
+ 410  p=  1 b=  4 c=  0  |        console.error('Error saving tracking state:', e);
+ 411  p=  1 b=  3 c=  0  |      }
+ 412  p=  1 b=  2 c=  0  |    };
+ 413  p=  1 b=  2 c=  0  |    saveTrackingState();
+ 414  p=  0 b=  1 c=  0  |  }, [tracking, startTime, selectedPurpose, selectedCategory]);
+ 420  p=  1 b=  2 c=  0  |  const loadTrips = useCallback(async (userId, teamId, role) => {
+ 421  p=  1 b=  3 c=  0  |    try {
+ 422  p=  1 b=  3 c=  0  |      console.log('Loading trips for user:', userId);
+ 425  p=  1 b=  3 c=  0  |        .from('trip_logs')
+ 426  p=  1 b=  3 c=  0  |        .select('*')
+ 427  p=  1 b=  3 c=  0  |        .order('created_at', { ascending: false });
+ 428  p=  1 b=  4 c=  0  |      if (userRole === 'admin' && teamId) {
+ 429  p=  1 b=  4 c=  0  |        query = query.eq('team_id', teamId);
+ 430  p=  1 b=  4 c=  0  |      } else {
+ 431  p=  1 b=  4 c=  0  |        query = query.eq('user_id', userId);
+ 432  p=  1 b=  3 c=  0  |      }
+ 434  p=  1 b=  3 c=  0  |      const { data, error } = await query;
+ 435  p=  1 b=  4 c=  0  |      if (error) {
+ 436  p=  1 b=  4 c=  0  |        console.error('Error loading trips:', error);
+ 437  p=  1 b=  4 c=  0  |        return [];
+ 438  p=  1 b=  3 c=  0  |      }
+ 440  p=  1 b=  3 c=  0  |      setUserId(userId);
+ 441  p=  3 b=  4 c=  0  |      const formattedTrips = (data || []).map(trip => ({
+ 446  p=  3 b=  4 c=  0  |        date: new Date(trip.trip_date).toLocaleDateString(),
+ 447  p=  3 b=  4 c=  0  |        year: new Date(trip.trip_date).getFullYear().toString(),
+ 448  p=  3 b=  4 c=  0  |        month: String(new Date(trip.trip_date).getMonth() + 1).padStart(2, '0'),
+ 455  p=  3 b=  4 c=  0  |        distance: parseFloat(trip.distance_km)
+ 456  p=  1 b=  3 c=  0  |      }));
+ 458  p=  1 b=  3 c=  0  |      setTrips(formattedTrips);
+ 460  p=  1 b=  3 c=  0  |    } catch (error) {
+ 461  p=  1 b=  3 c=  0  |      console.error('Error in loadTrips:', error);
+ 462  p=  1 b=  3 c=  0  |      return [];
+ 463  p=  1 b=  2 c=  0  |    }
+ 464  p=  0 b=  1 c=  0  |  }, [driverName]);
+ 469  p=  1 b=  2 c=  0  |  const checkSubscriptionStatus = useCallback(async (teamId) => {
+ 470  p=  1 b=  3 c=  0  |    try {
+ 471  p=  1 b=  3 c=  0  |      const { data, error } = await supabase
+ 472  p=  1 b=  3 c=  0  |        .from('teams')
+ 473  p=  1 b=  3 c=  0  |        .select('subscription_tier, monthly_trip_limit, payment_status, last_payment_date, subscription_end_date')
+ 474  p=  1 b=  3 c=  0  |        .eq('id', teamId)
+ 475  p=  1 b=  3 c=  0  |        .single();
+ 477  p=  1 b=  3 c=  0  |      if (error) throw error;
+ 479  p=  1 b=  4 c=  0  |      const tierMap = {
+ 485  p=  1 b=  3 c=  0  |      };
+ 488  p=  1 b=  3 c=  0  |      const expiryDate = data.subscription_end_date ? new Date(data.subscription_end_date) : null;
+ 490  p=  1 b=  4 c=  0  |      if (data.payment_status === 'active' && expiryDate && expiryDate < new Date()) {
+ 492  p=  1 b=  4 c=  0  |          .from('teams')
+ 493  p=  2 b=  5 c=  0  |          .update({
+ 498  p=  1 b=  4 c=  0  |          })
+ 499  p=  1 b=  4 c=  0  |          .eq('id', teamId);
+ 501  p=  1 b=  5 c=  0  |        return {
+ 507  p=  1 b=  4 c=  0  |        };
+ 508  p=  1 b=  3 c=  0  |      }
+ 510  p=  1 b=  4 c=  0  |      return {
+ 511  p=  1 b=  4 c=  0  |        tier: tierMap[data.subscription_tier] || 'Personal Free',
+ 516  p=  1 b=  3 c=  0  |      };
+ 517  p=  1 b=  3 c=  0  |    } catch (error) {
+ 518  p=  1 b=  3 c=  0  |      console.error('Error checking subscription:', error);
+ 520  p=  1 b=  2 c=  0  |    }
+ 521  p=  0 b=  1 c=  0  |  }, []);
+ 526  p=  0 b=  2 c=  0  |  const loadTeamMembers = async (teamId) => {
+ 527  p=  0 b=  3 c=  0  |    try {
+ 528  p=  0 b=  4 c=  0  |      if (!teamId) {
+ 529  p=  0 b=  4 c=  0  |        setTeamMembers([]);
+ 530  p=  0 b=  4 c=  0  |        setGroupMembers([]);
+ 531  p=  0 b=  4 c=  0  |        setHasGroup(false);
+ 533  p=  0 b=  3 c=  0  |      }
+ 535  p=  0 b=  3 c=  0  |      const result = await GroupService.getGroupMembers(teamId);
+ 536  p=  0 b=  4 c=  0  |      if (result.success) {
+ 537  p=  0 b=  4 c=  0  |        setTeamMembers(result.data || []);
+ 538  p=  0 b=  4 c=  0  |        setGroupMembers(result.data || []);
+ 539  p=  0 b=  4 c=  0  |        setHasGroup(result.data && result.data.length > 0);
+ 540  p=  0 b=  3 c=  0  |      }
+ 541  p=  0 b=  3 c=  0  |    } catch (error) {
+ 542  p=  0 b=  3 c=  0  |      console.error('Error loading team members:', error);
+ 543  p=  0 b=  3 c=  0  |      setTeamMembers([]);
+ 544  p=  0 b=  3 c=  0  |      setGroupMembers([]);
+ 545  p=  0 b=  3 c=  0  |      setHasGroup(false);
+ 546  p=  0 b=  2 c=  0  |    }
+ 547  p=  0 b=  1 c=  0  |  };
+ 552  p=  0 b=  2 c=  0  |  const fetchPendingCount = async (teamId, isLeader) => {
+ 553  p=  0 b=  3 c=  0  |    if (!teamId || !isLeader) {
+ 554  p=  0 b=  3 c=  0  |      setPendingRequestsCount(0);
+ 556  p=  0 b=  2 c=  0  |    }
+ 558  p=  0 b=  3 c=  0  |    try {
+ 559  p=  0 b=  3 c=  0  |      const { count, error } = await supabase
+ 560  p=  0 b=  3 c=  0  |        .from('group_join_requests')
+ 561  p=  0 b=  3 c=  0  |        .select('*', { count: 'exact', head: true })
+ 562  p=  0 b=  3 c=  0  |        .eq('team_id', teamId)
+ 563  p=  0 b=  3 c=  0  |        .eq('status', 'pending');
+ 565  p=  0 b=  4 c=  0  |      if (!error) {
+ 566  p=  0 b=  4 c=  0  |        setPendingRequestsCount(count || 0);
+ 567  p=  0 b=  4 c=  0  |        console.log('📨 Pending requests count:', count);
+ 568  p=  0 b=  3 c=  0  |      }
+ 569  p=  0 b=  3 c=  0  |    } catch (error) {
+ 570  p=  0 b=  3 c=  0  |      console.error('Error fetching pending count:', error);
+ 571  p=  0 b=  2 c=  0  |    }
+ 572  p=  0 b=  1 c=  0  |  };
+ 577  p=  1 b=  2 c=  0  |  const loadUserData = useCallback(async (user) => {
+ 578  p=  1 b=  3 c=  0  |    if (isLoadingRef.current) {
+ 579  p=  1 b=  3 c=  0  |      console.log('Already loading, skipping...');
+ 581  p=  1 b=  2 c=  0  |    }
+ 583  p=  1 b=  3 c=  0  |    if (!user || !user.id) {
+ 584  p=  1 b=  3 c=  0  |      console.log('No user provided to loadUserData');
+ 586  p=  1 b=  2 c=  0  |    }
+ 588  p=  1 b=  2 c=  0  |    console.log('Loading user data for:', user.id);
+ 590  p=  1 b=  3 c=  0  |    try {
+ 592  p=  1 b=  3 c=  0  |      setIsLoading(true);
+ 594  p=  1 b=  3 c=  0  |      const { data: profileData, error: profileError } = await supabase
+ 595  p=  1 b=  3 c=  0  |        .from('profiles')
+ 596  p=  1 b=  3 c=  0  |        .select('*')
+ 597  p=  1 b=  3 c=  0  |        .eq('id', user.id)
+ 598  p=  1 b=  3 c=  0  |        .maybeSingle();
+ 600  p=  1 b=  4 c=  0  |      if (profileError) {
+ 601  p=  1 b=  4 c=  0  |        console.error('Profile fetch error:', profileError);
+ 603  p=  1 b=  3 c=  0  |      }
+ 608  p=  1 b=  4 c=  0  |      if (!currentProfile) {
+ 609  p=  1 b=  4 c=  0  |        console.log('No profile found, creating one...');
+ 610  p=  1 b=  4 c=  0  |      console.log('ℹ️ New user - no team created');
+ 611  p=  1 b=  4 c=  0  |        const { data: newProfile, error: createError } = await supabase
+ 612  p=  1 b=  4 c=  0  |          .from('profiles')
+ 613  p=  2 b=  5 c=  0  |          .insert({
+ 616  p=  2 b=  5 c=  0  |            full_name: user.user_metadata?.full_name || user.email.split('@')[0],
+ 619  p=  1 b=  4 c=  0  |          })
+ 620  p=  1 b=  4 c=  0  |          .select()
+ 621  p=  1 b=  4 c=  0  |          .single();
+ 623  p=  1 b=  5 c=  0  |        if (createError) {
+ 624  p=  1 b=  5 c=  0  |          console.error('Profile creation error:', createError);
+ 626  p=  1 b=  4 c=  0  |        }
+ 630  p=  1 b=  4 c=  0  |        console.log('Profile created:', currentProfile);
+ 631  p=  1 b=  4 c=  0  |      } else {
+ 633  p=  1 b=  4 c=  0  |        console.log('Existing profile found:', currentProfile);
+ 634  p=  1 b=  3 c=  0  |      }
+ 639  p=  1 b=  3 c=  0  |      // App Admin (super admin) - only specific email
+ 642  p=  1 b=  3 c=  0  |      setIsAppAdmin(isAppAdminCheck);
+ 644  p=  1 b=  3 c=  0  |      // Group Admin (leader) - leader of their group
+ 646  p=  1 b=  3 c=  0  |      setIsAdmin(isGroupAdminCheck);
+ 648  p=  1 b=  3 c=  0  |      console.log('📧 User email:', user.email);
+ 649  p=  1 b=  3 c=  0  |      console.log('👑 App Admin check:', isAppAdminCheck, 'for:', user.email);
+ 650  p=  1 b=  3 c=  0  |      console.log('👥 Group Admin check:', isGroupAdminCheck);
+ 652  p=  1 b=  3 c=  0  |      setProfile(currentProfile);
+ 653  p=  1 b=  3 c=  0  |      setDriverName(currentProfile.full_name || '');
+ 654  p=  1 b=  3 c=  0  |      setUserEmail(currentProfile.email || '');
+ 655  p=  1 b=  3 c=  0  |      setTeamId(currentTeamId);
+ 656  p=  1 b=  3 c=  0  |      setUserId(user.id);
+ 657  p=  1 b=  3 c=  0  |      setHasGroup(hasValidTeam);
+ 663  p=  1 b=  3 c=  0  |      const isGroupLeaderCheck = hasValidTeam && (currentProfile.role === 'leader' || currentProfile.role === 'admin');
+ 665  p=  1 b=  4 c=  0  |      if (isGroupLeaderCheck && currentTeamId) {
+ 667  p=  1 b=  4 c=  0  |        await fetchPendingCount(currentTeamId, true);
+ 669  p=  1 b=  4 c=  0  |        console.log('📨 Fetched pending count for team:', currentTeamId);
+ 671  p=  1 b=  4 c=  0  |      } else {
+ 673  p=  1 b=  4 c=  0  |        setPendingRequestsCount(0);
+ 675  p=  1 b=  3 c=  0  |      }
+ 677  p=  1 b=  3 c=  0  |      // LOAD SUBSCRIPTION FROM PROFILE (for personal plans)
+ 683  p=  1 b=  3 c=  0  |      console.log('📊 Profile subscription tier:', profileTier);
+ 684  p=  1 b=  3 c=  0  |      console.log('📅 Profile subscription expiry:', profileExpiry);
+ 687  p=  1 b=  4 c=  0  |      const tierMap = {
+ 693  p=  1 b=  3 c=  0  |      };
+ 695  p=  1 b=  3 c=  0  |      // If user has a personal subscription (Basic or Pro), use it
+ 696  p=  1 b=  4 c=  0  |      if (profileTier && profileTier !== 'personal_free') {
+ 697  p=  1 b=  4 c=  0  |        console.log('📊 Using personal subscription from profile:', profileTier);
+ 698  p=  1 b=  4 c=  0  |        setSubscriptionTier(tierMap[profileTier] || 'Personal Free');
+ 699  p=  1 b=  4 c=  0  |        setSubscriptionStatus('active');
+ 700  p=  1 b=  4 c=  0  |        setSubscriptionExpiry(profileExpiry);
+ 701  p=  1 b=  4 c=  0  |      } else if (currentTeamId) {
+ 702  p=  1 b=  4 c=  0  |        console.log('📊 Checking team subscription...');
+ 704  p=  1 b=  4 c=  0  |      } else {
+ 706  p=  1 b=  4 c=  0  |        console.log('📊 No subscription found - Personal Free');
+ 707  p=  1 b=  4 c=  0  |        setSubscriptionTier('Personal Free');
+ 708  p=  1 b=  4 c=  0  |        setSubscriptionStatus('free');
+ 709  p=  1 b=  4 c=  0  |        setSubscriptionExpiry(null);
+ 710  p=  1 b=  3 c=  0  |      }
+ 712  p=  1 b=  4 c=  0  |      if (currentTeamId) {
+ 713  p=  1 b=  4 c=  0  |        console.log('Fetching team subscription...');
+ 714  p=  1 b=  4 c=  0  |        const status = await checkSubscriptionStatus(currentTeamId);
+ 715  p=  1 b=  5 c=  0  |        if (status) {
+ 716  p=  1 b=  5 c=  0  |          setSubscriptionTier(status.tier);
+ 717  p=  1 b=  5 c=  0  |          setSubscriptionStatus(status.status);
+ 718  p=  1 b=  5 c=  0  |          setSubscriptionExpiry(status.expiresAt);
+ 719  p=  1 b=  5 c=  0  |          console.log('Subscription status:', status);
+ 720  p=  1 b=  4 c=  0  |        }
+ 723  p=  1 b=  4 c=  0  |        await loadTeamMembers(currentTeamId);
+ 724  p=  1 b=  4 c=  0  |      } else {
+ 726  p=  1 b=  4 c=  0  |        setTeamMembers([]);
+ 727  p=  1 b=  4 c=  0  |        setGroupMembers([]);
+ 728  p=  1 b=  4 c=  0  |        setHasGroup(false);
+ 729  p=  1 b=  3 c=  0  |      }
+ 731  p=  1 b=  3 c=  0  |      console.log('Loading trips...');
+ 733  p=  1 b=  3 c=  0  |      const loadedTrips = await loadTrips(user.id, currentTeamId, userRole);
+ 734  p=  1 b=  3 c=  0  |      console.log('Total trips loaded:', loadedTrips?.length || 0);
+ 736  p=  1 b=  3 c=  0  |      console.log('User data loaded successfully');
+ 737  p=  1 b=  3 c=  0  |      setCurrentScreen('app');
+ 739  p=  1 b=  3 c=  0  |    } catch (error) {
+ 740  p=  1 b=  3 c=  0  |      console.error('Error loading user data:', error);
+ 741  p=  1 b=  3 c=  0  |      Alert.alert('Error', 'Failed to load user data. Please try again.\n\nError: ' + error.message);
+ 742  p=  1 b=  3 c=  0  |    } finally {
+ 743  p=  1 b=  3 c=  0  |      setIsLoading(false);
+ 745  p=  1 b=  2 c=  0  |    }
+ 746  p=  0 b=  1 c=  0  |  }, [loadTrips, checkSubscriptionStatus]);
+ 751  p=  1 b=  2 c=  0  |  useEffect(() => {
+ 754  p=  1 b=  3 c=  0  |    const initializeApp = async () => {
+ 755  p=  1 b=  4 c=  0  |      if (isInitializedRef.current) {
+ 756  p=  1 b=  4 c=  0  |        console.log('Already initialized, skipping...');
+ 758  p=  1 b=  3 c=  0  |      }
+ 760  p=  1 b=  4 c=  0  |      try {
+ 761  p=  1 b=  4 c=  0  |        console.log('Initializing app...');
+ 762  p=  1 b=  4 c=  0  |        const { data: { session } } = await supabase.auth.getSession();
+ 764  p=  1 b=  5 c=  0  |        if (session?.user && isMounted) {
+ 765  p=  1 b=  5 c=  0  |          console.log('Session found for user:', session.user.id);
+ 766  p=  1 b=  5 c=  0  |          setSession(session);
+ 767  p=  1 b=  5 c=  0  |          setUser(session.user);
+ 768  p=  1 b=  5 c=  0  |          await loadUserData(session.user);
+ 770  p=  1 b=  5 c=  0  |        } else if (isMounted) {
+ 771  p=  1 b=  5 c=  0  |          console.log('No session found, showing auth screen');
+ 772  p=  1 b=  5 c=  0  |          setCurrentScreen('auth');
+ 774  p=  1 b=  4 c=  0  |        }
+ 775  p=  1 b=  4 c=  0  |      } catch (error) {
+ 776  p=  1 b=  4 c=  0  |        console.error('Initialization error:', error);
+ 777  p=  1 b=  5 c=  0  |        if (isMounted) {
+ 778  p=  1 b=  5 c=  0  |          setCurrentScreen('auth');
+ 780  p=  1 b=  4 c=  0  |        }
+ 781  p=  1 b=  3 c=  0  |      }
+ 782  p=  1 b=  2 c=  0  |    };
+ 784  p=  1 b=  2 c=  0  |    initializeApp();
+ 790  p=  2 b=  3 c=  0  |  useEffect(() => {
+ 791  p=  2 b=  3 c=  0  |    if (!user?.id || !teamId || !isAdmin) return;
+ 793  p=  2 b=  3 c=  0  |    console.log('📡 App.js: Setting up pending requests subscription...');
+ 796  p=  2 b=  3 c=  0  |      .channel('pending_requests_count_' + teamId)
+ 797  p=  3 b=  4 c=  0  |      .on('postgres_changes', {
+ 802  p=  3 b=  4 c=  0  |      }, async (payload) => {
+ 803  p=  3 b=  4 c=  0  |        console.log('🔄 Pending request change detected:', payload.eventType);
+ 805  p=  3 b=  4 c=  0  |        const { count } = await supabase
+ 806  p=  3 b=  4 c=  0  |          .from('group_join_requests')
+ 807  p=  3 b=  4 c=  0  |          .select('*', { count: 'exact', head: true })
+ 808  p=  3 b=  4 c=  0  |          .eq('team_id', teamId)
+ 809  p=  3 b=  4 c=  0  |          .eq('status', 'pending');
+ 810  p=  3 b=  4 c=  0  |        setPendingRequestsCount(count || 0);
+ 811  p=  3 b=  4 c=  0  |        console.log('📨 Updated pending count:', count);
+ 814  p=  3 b=  5 c=  0  |        if (payload.eventType === 'INSERT') {
+ 815  p=  4 b=  5 c=  0  |          Alert.alert(
+ 818  p=  4 b=  5 c=  0  |            [{ text: 'OK' }]
+ 819  p=  3 b=  5 c=  0  |          );
+ 820  p=  3 b=  4 c=  0  |        }
+ 821  p=  2 b=  3 c=  0  |      })
+ 822  p=  2 b=  3 c=  0  |      .subscribe();
+ 824  p=  2 b=  4 c=  0  |    return () => {
+ 825  p=  2 b=  4 c=  0  |      console.log('📡 App.js: Unsubscribing from pending requests...');
+ 826  p=  2 b=  4 c=  0  |      supabase.removeChannel(channel);
+ 827  p=  2 b=  3 c=  0  |    };
+ 828  p=  1 b=  2 c=  0  |  }, [user?.id, teamId, isAdmin]);
+ 830  p=  2 b=  3 c=  0  |  useEffect(() => {
+ 831  p=  3 b=  3 c=  0  |    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+ 832  p=  3 b=  4 c=  0  |      async (event, session) => {
+ 833  p=  3 b=  4 c=  0  |        console.log('Auth event:', event);
+ 835  p=  3 b=  5 c=  0  |        if (event === 'SIGNED_IN' && session?.user && isMounted) {
+ 836  p=  3 b=  5 c=  0  |          console.log('User signed in:', session.user.id);
+ 837  p=  3 b=  5 c=  0  |          setSession(session);
+ 838  p=  3 b=  5 c=  0  |          setUser(session.user);
+ 840  p=  3 b=  5 c=  0  |          await loadUserData(session.user);
+ 842  p=  3 b=  5 c=  0  |        } else if (event === 'SIGNED_OUT' && isMounted) {
+ 843  p=  3 b=  5 c=  0  |          console.log('User signed out');
+ 844  p=  3 b=  5 c=  0  |          setSession(null);
+ 845  p=  3 b=  5 c=  0  |          setUser(null);
+ 846  p=  3 b=  5 c=  0  |          setTrips([]);
+ 847  p=  3 b=  5 c=  0  |          setProfile(null);
+ 848  p=  3 b=  5 c=  0  |          setTeamMembers([]);
+ 849  p=  3 b=  5 c=  0  |          setGroupMembers([]);
+ 851  p=  3 b=  5 c=  0  |          setCurrentScreen('auth');
+ 852  p=  3 b=  4 c=  0  |        }
+ 853  p=  3 b=  3 c=  0  |      }
+ 854  p=  2 b=  3 c=  0  |    );
+ 856  p=  2 b=  4 c=  0  |    return () => {
+ 857  p=  2 b=  4 c=  0  |      console.log('Cleaning up');
+ 859  p=  2 b=  4 c=  0  |      subscription?.unsubscribe();
+ 860  p=  2 b=  3 c=  0  |    };
+ 861  p=  1 b=  2 c=  0  |  }, [loadUserData]);
+ 866  p=  2 b=  3 c=  0  |  const getCurrentMonthTripCount = useCallback(() => {
+ 867  p=  2 b=  3 c=  0  |    const now = new Date();
+ 868  p=  2 b=  3 c=  0  |    const currentYear = `${now.getFullYear()}`;
+ 869  p=  2 b=  3 c=  0  |    const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
+ 871  p=  3 b=  4 c=  0  |    const count = trips.filter(t => {
+ 872  p=  3 b=  5 c=  0  |      if (userId && t.userId === userId) {
+ 874  p=  3 b=  4 c=  0  |      }
+ 876  p=  2 b=  3 c=  0  |    }).length;
+ 879  p=  1 b=  2 c=  0  |  }, [trips, userId, driverName]);
+ 881  p=  1 b=  2 c=  0  |  const monthlyUsageCount = useMemo(() => getCurrentMonthTripCount(), [getCurrentMonthTripCount]);
+ 882  p=  1 b=  2 c=  0  |  const currentConfig = useMemo(() => TIER_CONFIG[subscriptionTier] || TIER_CONFIG['Personal Free'], [subscriptionTier]);
+ 883  p=  1 b=  2 c=  0  |  const currentLimit = useMemo(() => currentConfig.limit, [currentConfig]);
+ 884  p=  1 b=  2 c=  0  |  const isUsageLimitReached = useMemo(() => monthlyUsageCount >= currentLimit, [monthlyUsageCount, currentLimit]);
+ 886  p=  2 b=  3 c=  0  |  const availableYears = useMemo(() => {
+ 887  p=  2 b=  3 c=  0  |    return Array.from(new Set(trips.map(t => t.year).filter(Boolean))).sort().reverse();
+ 888  p=  1 b=  2 c=  0  |  }, [trips]);
+ 890  p=  2 b=  3 c=  0  |  const filteredTrips = useMemo(() => {
+ 891  p=  3 b=  4 c=  0  |    return trips.filter((t) => {
+ 895  p=  2 b=  3 c=  0  |    });
+ 896  p=  1 b=  2 c=  0  |  }, [trips, selectedYear, selectedMonthNum]);
+ 898  p=  2 b=  3 c=  0  |  const currentUserTrips = useMemo(() => {
+ 899  p=  3 b=  4 c=  0  |    return filteredTrips.filter(t => {
+ 900  p=  3 b=  4 c=  0  |      if (userId && t.userId === userId) return true;
+ 902  p=  2 b=  3 c=  0  |    });
+ 903  p=  1 b=  2 c=  0  |  }, [filteredTrips, userId, driverName]);
+ 905  p=  1 b=  2 c=  0  |  const totalTripsCount = useMemo(() => currentUserTrips.length, [currentUserTrips]);
+ 906  p=  2 b=  3 c=  0  |  const totalDistanceCount = useMemo(() => {
+ 907  p=  2 b=  3 c=  0  |    return currentUserTrips.reduce((acc, curr) => acc + curr.distance, 0).toFixed(1);
+ 908  p=  1 b=  2 c=  0  |  }, [currentUserTrips]);
+ 910  p=  2 b=  3 c=  0  |  const teamStats = useMemo(() => {
+ 912  p=  2 b=  3 c=  0  |    const teamNames = teamMembers.map(m => m.name);
+ 913  p=  2 b=  3 c=  0  |    const teamTrips = filtered.filter(t => teamNames.includes(t.userName));
+ 915  p=  2 b=  3 c=  0  |    const totalDistance = teamTrips.reduce((acc, curr) => acc + curr.distance, 0);
+ 916  p=  2 b=  3 c=  0  |    return { totalTrips, totalDistance: totalDistance.toFixed(1) };
+ 917  p=  1 b=  2 c=  0  |  }, [filteredTrips, teamMembers]);
+ 922  p=  1 b=  3 c=  0  |  const handleUpgradeTier = async (newTier) => {
+ 923  p=  1 b=  3 c=  0  |    console.log('Initiating upgrade to tier:', newTier);
+ 925  p=  1 b=  3 c=  0  |    const paidTiers = ['Personal Basic', 'Personal Pro'];
+ 926  p=  1 b=  3 c=  0  |    const groupTiers = ['Group Basic', 'Group Pro'];
+ 927  p=  1 b=  3 c=  0  |    const isNewTierPaid = paidTiers.includes(newTier);
+ 928  p=  1 b=  3 c=  0  |    const isCurrentTierPaid = paidTiers.includes(subscriptionTier);
+ 929  p=  1 b=  3 c=  0  |    const isCurrentGroup = groupTiers.includes(subscriptionTier);
+ 930  p=  1 b=  3 c=  0  |    const isNewGroup = groupTiers.includes(newTier);
+ 933  p=  1 b=  4 c=  0  |    if (isCurrentGroup && !isNewGroup) {
+ 934  p=  2 b=  4 c=  0  |      Alert.alert(
+ 937  p=  2 b=  4 c=  1  |        [
+ 938  p=  2 b=  4 c=  1  |          { text: 'Cancel', style: 'cancel' },
+ 939  p=  2 b=  5 c=  1  |          {
+ 942  p=  2 b=  6 c=  1  |            onPress: async () => {
+ 943  p=  2 b=  6 c=  1  |              const status = await checkSubscriptionStatus(teamId);
+ 944  p=  2 b=  7 c=  1  |              if (status && status.isActive && status.status === 'active') {
+ 945  p=  2 b=  7 c=  1  |                const expiryDate = status.expiresAt ? new Date(status.expiresAt).toLocaleDateString() : 'Unknown';
+ 946  p=  3 b=  7 c=  1  |                Alert.alert(
+ 948  p=  3 b=  7 c=  1  |                  `You have an active group subscription until ${expiryDate}. You can downgrade after it expires.`
+ 949  p=  2 b=  7 c=  1  |                );
+ 951  p=  2 b=  6 c=  1  |              }
+ 952  p=  2 b=  6 c=  1  |              await performTierUpgrade(newTier);
+ 953  p=  2 b=  5 c=  1  |            }
+ 954  p=  2 b=  4 c=  1  |          }
+ 955  p=  2 b=  4 c=  0  |        ]
+ 956  p=  1 b=  4 c=  0  |      );
+ 958  p=  1 b=  3 c=  0  |    }
+ 961  p=  1 b=  4 c=  0  |    if (newTier === 'Group Basic' || newTier === 'Group Pro') {
+ 962  p=  2 b=  4 c=  0  |      Alert.alert(
+ 965  p=  1 b=  4 c=  0  |      );
+ 967  p=  1 b=  3 c=  0  |    }
+ 969  p=  1 b=  4 c=  0  |    if (isCurrentTierPaid && !isNewTierPaid) {
+ 970  p=  1 b=  4 c=  0  |      const status = await checkSubscriptionStatus(teamId);
+ 971  p=  1 b=  5 c=  0  |      if (status && status.isActive && status.status === 'active') {
+ 972  p=  1 b=  5 c=  0  |        const expiryDate = status.expiresAt ? new Date(status.expiresAt).toLocaleDateString() : 'Unknown';
+ 973  p=  2 b=  5 c=  0  |        Alert.alert(
+ 975  p=  2 b=  5 c=  0  |          `You have an active ${subscriptionTier} subscription until ${expiryDate}.`
+ 976  p=  1 b=  5 c=  0  |        );
+ 978  p=  1 b=  4 c=  0  |      }
+ 979  p=  1 b=  3 c=  0  |    }
+ 981  p=  1 b=  4 c=  0  |    if (isNewTierPaid) {
+ 982  p=  1 b=  5 c=  0  |      if (subscriptionTier === newTier) {
+ 983  p=  1 b=  5 c=  0  |        Alert.alert('Already Subscribed', `You are already on the ${newTier} plan.`);
+ 985  p=  1 b=  4 c=  0  |      }
+ 986  p=  1 b=  4 c=  0  |      setPendingTierUpgrade(newTier);
+ 987  p=  1 b=  4 c=  0  |      setShowPaymentModal(true);
+ 988  p=  1 b=  4 c=  0  |    } else {
+ 989  p=  1 b=  4 c=  0  |      const status = await checkSubscriptionStatus(teamId);
+ 990  p=  1 b=  5 c=  0  |      if (status && status.isActive && status.status === 'active') {
+ 991  p=  1 b=  5 c=  0  |        Alert.alert('Cannot Downgrade', `You have an active ${subscriptionTier} subscription. Please wait until it expires.`);
+ 993  p=  1 b=  4 c=  0  |      }
+ 994  p=  1 b=  4 c=  0  |      await performTierUpgrade(newTier);
+ 995  p=  1 b=  3 c=  0  |    }
+ 996  p=  1 b=  2 c=  0  |  };
+ 998  p=  1 b=  3 c=  0  |  const performTierUpgrade = async (newTier) => {
+ 999  p=  1 b=  4 c=  0  |    try {
+1000  p=  1 b=  4 c=  0  |      setPaymentLoading(true);
+1001  p=  1 b=  4 c=  0  |      const config = TIER_CONFIG[newTier];
+1002  p=  1 b=  5 c=  0  |      if (!config) {
+1003  p=  1 b=  5 c=  0  |        Alert.alert('Error', 'Invalid subscription tier');
+1005  p=  1 b=  4 c=  0  |      }
+1009  p=  1 b=  4 c=  0  |        (subscriptionTier === 'Group Basic' || subscriptionTier === 'Group Pro') &&
+1010  p=  1 b=  4 c=  0  |        (newTier === 'Personal Free' || newTier === 'Personal Basic' || newTier === 'Personal Pro');
+1013  p=  1 b=  4 c=  0  |      const { error } = await supabase
+1014  p=  1 b=  4 c=  0  |        .from('teams')
+1015  p=  2 b=  5 c=  0  |        .update({
+1019  p=  1 b=  4 c=  0  |        })
+1020  p=  1 b=  4 c=  0  |        .eq('id', teamId);
+1022  p=  1 b=  4 c=  0  |      if (error) throw error;
+1025  p=  1 b=  5 c=  0  |      if (isGroupToPersonal) {
+1027  p=  1 b=  5 c=  0  |        const { error: profileError } = await supabase
+1028  p=  1 b=  5 c=  0  |          .from('profiles')
+1029  p=  2 b=  6 c=  0  |          .update({
+1032  p=  1 b=  5 c=  0  |          })
+1033  p=  1 b=  5 c=  0  |          .eq('id', user.id);
+1035  p=  1 b=  5 c=  0  |        if (profileError) throw profileError;
+1038  p=  1 b=  5 c=  0  |        const { data: members, error: membersError } = await supabase
+1039  p=  1 b=  5 c=  0  |          .from('profiles')
+1040  p=  1 b=  5 c=  0  |          .select('id')
+1041  p=  1 b=  5 c=  0  |          .eq('team_id', teamId)
+1042  p=  1 b=  5 c=  0  |          .neq('id', user.id);
+1044  p=  1 b=  5 c=  0  |        if (membersError) throw membersError;
+1047  p=  1 b=  6 c=  0  |        for (const member of members || []) {
+1049  p=  1 b=  6 c=  0  |            .from('profiles')
+1050  p=  2 b=  7 c=  0  |            .update({
+1053  p=  1 b=  6 c=  0  |            })
+1054  p=  1 b=  6 c=  0  |            .eq('id', member.id);
+1055  p=  1 b=  5 c=  0  |        }
+1058  p=  1 b=  5 c=  0  |        setTeamId(null);
+1059  p=  1 b=  5 c=  0  |        setIsAdmin(false);
+1060  p=  1 b=  5 c=  0  |        setHasGroup(false);
+1061  p=  1 b=  5 c=  0  |        setTeamMembers([]);
+1062  p=  1 b=  5 c=  0  |        setGroupMembers([]);
+1064  p=  2 b=  5 c=  0  |        Alert.alert(
+1067  p=  1 b=  5 c=  0  |        );
+1068  p=  1 b=  4 c=  0  |      }
+1070  p=  1 b=  4 c=  0  |      setSubscriptionTier(newTier);
+1071  p=  1 b=  4 c=  0  |      await loadUserData(user);
+1072  p=  1 b=  4 c=  0  |      setShowSubscriptionModal(false);
+1073  p=  1 b=  4 c=  0  |      Alert.alert('Success', `You are now on the ${newTier} plan!`);
+1074  p=  1 b=  4 c=  0  |    } catch (error) {
+1075  p=  1 b=  4 c=  0  |      console.error('Error upgrading tier:', error);
+1076  p=  1 b=  4 c=  0  |      Alert.alert('Error', 'Failed to upgrade subscription: ' + error.message);
+1077  p=  1 b=  4 c=  0  |    } finally {
+1078  p=  1 b=  4 c=  0  |      setPaymentLoading(false);
+1079  p=  1 b=  4 c=  0  |      setShowPaymentModal(false);
+1080  p=  1 b=  3 c=  0  |    }
+1081  p=  1 b=  2 c=  0  |  };
+1083  p=  1 b=  3 c=  0  |  const handlePaymentSuccess = async (tier) => {
+1084  p=  1 b=  3 c=  0  |    console.log('Payment successful for tier:', tier);
+1085  p=  1 b=  3 c=  0  |    await performTierUpgrade(tier);
+1086  p=  1 b=  3 c=  0  |    setShowPaymentModal(false);
+1087  p=  1 b=  3 c=  0  |    setPendingTierUpgrade(null);
+1088  p=  1 b=  2 c=  0  |  };
+1090  p=  1 b=  3 c=  0  |  const handlePaymentError = (error) => {
+1091  p=  1 b=  3 c=  0  |    console.error('Payment error:', error);
+1092  p=  1 b=  3 c=  0  |    Alert.alert('Payment Failed', error || 'There was an issue with your payment.');
+1093  p=  1 b=  3 c=  0  |    setShowPaymentModal(false);
+1094  p=  1 b=  3 c=  0  |    setPendingTierUpgrade(null);
+1095  p=  1 b=  2 c=  0  |  };
+1097  p=  1 b=  3 c=  0  |  const handlePaymentCancel = () => {
+1098  p=  1 b=  3 c=  0  |    console.log('Payment cancelled by user');
+1099  p=  1 b=  3 c=  0  |    setShowPaymentModal(false);
+1100  p=  1 b=  3 c=  0  |    setPendingTierUpgrade(null);
+1101  p=  1 b=  2 c=  0  |  };
+1106  p=  1 b=  3 c=  0  |  const handleAuth = async () => {
+1107  p=  1 b=  4 c=  0  |    if (!loginEmail || !loginPassword) {
+1108  p=  1 b=  4 c=  0  |      Alert.alert('Error', 'Please fill in all fields');
+1110  p=  1 b=  3 c=  0  |    }
+1113  p=  1 b=  3 c=  0  |    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+1114  p=  1 b=  4 c=  0  |    if (!emailRegex.test(loginEmail)) {
+1115  p=  1 b=  4 c=  0  |      Alert.alert('Error', 'Please enter a valid email address');
+1117  p=  1 b=  3 c=  0  |    }
+1119  p=  1 b=  3 c=  0  |    setIsLoading(true);
+1120  p=  1 b=  4 c=  0  |    try {
+1122  p=  1 b=  5 c=  0  |      if (!isLogin) {
+1123  p=  1 b=  5 c=  0  |        const { data: existingUser, error: checkError } = await supabase
+1124  p=  1 b=  5 c=  0  |          .from('profiles')
+1125  p=  1 b=  5 c=  0  |          .select('email')
+1126  p=  1 b=  5 c=  0  |          .eq('email', loginEmail)
+1127  p=  1 b=  5 c=  0  |          .maybeSingle();
+1129  p=  1 b=  6 c=  0  |        if (checkError && checkError.code !== 'PGRST116') {
+1130  p=  1 b=  6 c=  0  |          console.error('Error checking email:', checkError);
+1131  p=  1 b=  5 c=  0  |        }
+1133  p=  1 b=  6 c=  0  |        if (existingUser) {
+1134  p=  2 b=  6 c=  0  |          Alert.alert(
+1137  p=  2 b=  6 c=  1  |            [
+1138  p=  2 b=  6 c=  1  |              { text: 'OK', onPress: () => setIsLogin(true) }
+1139  p=  2 b=  6 c=  0  |            ]
+1140  p=  1 b=  6 c=  0  |          );
+1141  p=  1 b=  6 c=  0  |          setIsLoading(false);
+1143  p=  1 b=  5 c=  0  |        }
+1144  p=  1 b=  4 c=  0  |      }
+1147  p=  1 b=  5 c=  0  |      if (isLogin) {
+1148  p=  2 b=  6 c=  0  |        result = await supabase.auth.signInWithPassword({
+1151  p=  1 b=  5 c=  0  |        });
+1152  p=  1 b=  5 c=  0  |      } else {
+1153  p=  2 b=  6 c=  0  |        result = await supabase.auth.signUp({
+1156  p=  2 b=  7 c=  0  |          options: {
+1157  p=  2 b=  8 c=  0  |            data: {
+1158  p=  2 b=  8 c=  0  |              full_name: loginEmail.split('@')[0],
+1159  p=  2 b=  7 c=  0  |            }
+1160  p=  2 b=  6 c=  0  |          }
+1161  p=  1 b=  5 c=  0  |        });
+1162  p=  1 b=  4 c=  0  |      }
+1164  p=  1 b=  5 c=  0  |      if (result.error) {
+1165  p=  1 b=  5 c=  0  |        console.error('Auth error:', result.error);
+1168  p=  1 b=  6 c=  0  |        if (result.error.message.includes('Email not confirmed')) {
+1169  p=  2 b=  6 c=  0  |          Alert.alert(
+1172  p=  1 b=  6 c=  0  |          );
+1173  p=  1 b=  6 c=  0  |        } else {
+1174  p=  1 b=  6 c=  0  |          Alert.alert('Authentication Error', result.error.message);
+1175  p=  1 b=  5 c=  0  |        }
+1177  p=  1 b=  4 c=  0  |      }
+1179  p=  1 b=  5 c=  0  |      if (!isLogin) {
+1180  p=  2 b=  5 c=  0  |        Alert.alert(
+1183  p=  2 b=  7 c=  1  |          [{ text: 'OK', onPress: () => {
+1184  p=  2 b=  7 c=  1  |            setIsLogin(true);
+1185  p=  2 b=  7 c=  1  |            setLoginPassword('');
+1186  p=  2 b=  7 c=  1  |            setIsLoading(false);
+1187  p=  2 b=  5 c=  0  |          }}]
+1188  p=  1 b=  5 c=  0  |        );
+1189  p=  1 b=  5 c=  0  |      } else {
+1190  p=  1 b=  5 c=  0  |        Alert.alert('Welcome!', 'Logged in successfully.');
+1191  p=  1 b=  5 c=  0  |        setIsLoading(false);
+1192  p=  1 b=  4 c=  0  |      }
+1193  p=  1 b=  4 c=  0  |    } catch (error) {
+1194  p=  1 b=  4 c=  0  |      console.error('Auth error:', error);
+1195  p=  1 b=  5 c=  0  |      if (!error.message?.includes('Email not confirmed')) {
+1197  p=  1 b=  4 c=  0  |      }
+1198  p=  1 b=  4 c=  0  |      setIsLoading(false);
+1199  p=  1 b=  3 c=  0  |    }
+1200  p=  1 b=  2 c=  0  |  };
+1202  p=  1 b=  3 c=  0  |  const handleLogout = async () => {
+1203  p=  1 b=  4 c=  0  |    try {
+1204  p=  1 b=  4 c=  0  |      await supabase.auth.signOut();
+1205  p=  1 b=  4 c=  0  |      setCurrentScreen('auth');
+1206  p=  1 b=  4 c=  0  |    } catch (error) {
+1207  p=  1 b=  4 c=  0  |      Alert.alert('Error', 'Failed to logout');
+1208  p=  1 b=  3 c=  0  |    }
+1209  p=  1 b=  2 c=  0  |  };
+1214  p=  1 b=  3 c=  0  |  const syncProfileToSupabase = async (updatedProfile) => {
+1215  p=  1 b=  4 c=  0  |    try {
+1216  p=  1 b=  4 c=  0  |      const { error } = await supabase
+1217  p=  1 b=  4 c=  0  |        .from('profiles')
+1218  p=  2 b=  5 c=  0  |        .update({
+1221  p=  1 b=  4 c=  0  |        })
+1222  p=  1 b=  4 c=  0  |        .eq('id', user.id);
+1223  p=  1 b=  4 c=  0  |      if (error) throw error;
+1225  p=  1 b=  4 c=  0  |    } catch (error) {
+1226  p=  1 b=  4 c=  0  |      console.error('Error syncing profile:', error);
+1228  p=  1 b=  3 c=  0  |    }
+1229  p=  1 b=  2 c=  0  |  };
+1231  p=  1 b=  3 c=  0  |  const syncTripToSupabase = async (tripData) => {
+1232  p=  1 b=  4 c=  0  |    try {
+1233  p=  1 b=  4 c=  0  |      console.log('Saving trip to Supabase...');
+1235  p=  1 b=  4 c=  0  |      const { data: profileData, error: profileError } = await supabase
+1236  p=  1 b=  4 c=  0  |        .from('profiles')
+1237  p=  1 b=  4 c=  0  |        .select('id, team_id, full_name, role')
+1238  p=  1 b=  4 c=  0  |        .eq('id', user.id)
+1239  p=  1 b=  4 c=  0  |        .single();
+1241  p=  1 b=  5 c=  0  |      if (profileError) {
+1242  p=  1 b=  5 c=  0  |        console.error('Error fetching profile:', profileError);
+1243  p=  1 b=  5 c=  0  |        throw new Error('Could not find your profile. Please logout and login again.');
+1244  p=  1 b=  4 c=  0  |      }
+1248  p=  1 b=  5 c=  0  |      if (!teamId) {
+1249  p=  1 b=  5 c=  0  |        console.log('No team found, creating one...');
+1250  p=  1 b=  5 c=  0  |        const teamName = `${profileData.full_name || user.email.split('@')[0]}'s Team`;
+1251  p=  1 b=  5 c=  0  |        const { data: teamData, error: teamError } = await supabase
+1252  p=  1 b=  5 c=  0  |          .from('teams')
+1253  p=  2 b=  6 c=  0  |          .insert({
+1258  p=  1 b=  5 c=  0  |          })
+1259  p=  1 b=  5 c=  0  |          .select()
+1260  p=  1 b=  5 c=  0  |          .single();
+1262  p=  1 b=  6 c=  0  |        if (teamError) {
+1263  p=  1 b=  6 c=  0  |          console.error('Error creating team:', teamError);
+1264  p=  1 b=  6 c=  0  |        } else {
+1266  p=  1 b=  6 c=  0  |          console.log('Team created:', teamData);
+1267  p=  1 b=  6 c=  0  |          const { error: updateError } = await supabase
+1268  p=  1 b=  6 c=  0  |            .from('profiles')
+1269  p=  1 b=  6 c=  0  |            .update({ team_id: teamId })
+1270  p=  1 b=  6 c=  0  |            .eq('id', user.id);
+1271  p=  1 b=  7 c=  0  |          if (updateError) {
+1272  p=  1 b=  7 c=  0  |            console.error('Error updating profile with team_id:', updateError);
+1273  p=  1 b=  6 c=  0  |          }
+1274  p=  1 b=  5 c=  0  |        }
+1275  p=  1 b=  4 c=  0  |      }
+1278  p=  1 b=  5 c=  0  |      try {
+1279  p=  1 b=  6 c=  0  |        if (typeof tripData.date === 'string') {
+1280  p=  1 b=  6 c=  0  |          const dateParts = tripData.date.split('/');
+1281  p=  1 b=  7 c=  0  |          if (dateParts.length === 3) {
+1282  p=  1 b=  7 c=  0  |            const month = parseInt(dateParts[0]) - 1;
+1283  p=  1 b=  7 c=  0  |            const day = parseInt(dateParts[1]);
+1284  p=  1 b=  7 c=  0  |            const year = parseInt(dateParts[2]);
+1285  p=  1 b=  7 c=  0  |            const dateObj = new Date(year, month, day);
+1286  p=  1 b=  7 c=  0  |            formattedDate = dateObj.toISOString().split('T')[0];
+1287  p=  1 b=  7 c=  0  |          } else {
+1288  p=  1 b=  7 c=  0  |            const dateObj = new Date(tripData.date);
+1289  p=  1 b=  8 c=  0  |            if (!isNaN(dateObj.getTime())) {
+1290  p=  1 b=  8 c=  0  |              formattedDate = dateObj.toISOString().split('T')[0];
+1291  p=  1 b=  8 c=  0  |            } else {
+1292  p=  1 b=  8 c=  0  |              const now = new Date();
+1293  p=  1 b=  8 c=  0  |              formattedDate = now.toISOString().split('T')[0];
+1294  p=  1 b=  7 c=  0  |            }
+1295  p=  1 b=  6 c=  0  |          }
+1296  p=  1 b=  6 c=  0  |        } else {
+1297  p=  1 b=  6 c=  0  |          const now = new Date();
+1298  p=  1 b=  6 c=  0  |          formattedDate = now.toISOString().split('T')[0];
+1299  p=  1 b=  5 c=  0  |        }
+1300  p=  1 b=  5 c=  0  |      } catch (dateError) {
+1301  p=  1 b=  5 c=  0  |        const now = new Date();
+1302  p=  1 b=  5 c=  0  |        formattedDate = now.toISOString().split('T')[0];
+1303  p=  1 b=  4 c=  0  |      }
+1305  p=  1 b=  5 c=  0  |      const insertData = {
+1315  p=  1 b=  4 c=  0  |      };
+1317  p=  1 b=  4 c=  0  |      const { data, error } = await supabase
+1318  p=  1 b=  4 c=  0  |        .from('trip_logs')
+1319  p=  1 b=  4 c=  0  |        .insert(insertData)
+1320  p=  1 b=  4 c=  0  |        .select()
+1321  p=  1 b=  4 c=  0  |        .single();
+1323  p=  1 b=  5 c=  0  |      if (error) {
+1324  p=  1 b=  5 c=  0  |        console.error('Error inserting trip:', error);
+1326  p=  1 b=  4 c=  0  |      }
+1328  p=  1 b=  4 c=  0  |      console.log('Trip saved successfully:', data);
+1330  p=  1 b=  4 c=  0  |    } catch (error) {
+1331  p=  1 b=  4 c=  0  |      console.error('Error syncing trip:', error);
+1332  p=  1 b=  4 c=  0  |      Alert.alert('Error', 'Failed to save trip to server. Please try again.\n\nError: ' + error.message);
+1334  p=  1 b=  3 c=  0  |    }
+1335  p=  1 b=  2 c=  0  |  };
+1337  p=  1 b=  3 c=  0  |  const syncTripUpdateToSupabase = async (tripId, updatedData) => {
+1338  p=  1 b=  4 c=  0  |    try {
+1340  p=  1 b=  5 c=  0  |      try {
+1341  p=  1 b=  6 c=  0  |        if (typeof updatedData.date === 'string') {
+1342  p=  1 b=  6 c=  0  |          const dateParts = updatedData.date.split('/');
+1343  p=  1 b=  7 c=  0  |          if (dateParts.length === 3) {
+1344  p=  1 b=  7 c=  0  |            const month = parseInt(dateParts[0]) - 1;
+1345  p=  1 b=  7 c=  0  |            const day = parseInt(dateParts[1]);
+1346  p=  1 b=  7 c=  0  |            const year = parseInt(dateParts[2]);
+1347  p=  1 b=  7 c=  0  |            const dateObj = new Date(year, month, day);
+1348  p=  1 b=  7 c=  0  |            formattedDate = dateObj.toISOString().split('T')[0];
+1349  p=  1 b=  7 c=  0  |          } else {
+1350  p=  1 b=  7 c=  0  |            const dateObj = new Date(updatedData.date);
+1351  p=  1 b=  8 c=  0  |            if (!isNaN(dateObj.getTime())) {
+1352  p=  1 b=  8 c=  0  |              formattedDate = dateObj.toISOString().split('T')[0];
+1353  p=  1 b=  8 c=  0  |            } else {
+1354  p=  1 b=  8 c=  0  |              const now = new Date();
+1355  p=  1 b=  8 c=  0  |              formattedDate = now.toISOString().split('T')[0];
+1356  p=  1 b=  7 c=  0  |            }
+1357  p=  1 b=  6 c=  0  |          }
+1358  p=  1 b=  6 c=  0  |        } else {
+1359  p=  1 b=  6 c=  0  |          const now = new Date();
+1360  p=  1 b=  6 c=  0  |          formattedDate = now.toISOString().split('T')[0];
+1361  p=  1 b=  5 c=  0  |        }
+1362  p=  1 b=  5 c=  0  |      } catch (e) {
+1363  p=  1 b=  5 c=  0  |        const now = new Date();
+1364  p=  1 b=  5 c=  0  |        formattedDate = now.toISOString().split('T')[0];
+1365  p=  1 b=  4 c=  0  |      }
+1367  p=  1 b=  4 c=  0  |      const { error } = await supabase
+1368  p=  1 b=  4 c=  0  |        .from('trip_logs')
+1369  p=  2 b=  5 c=  0  |        .update({
+1377  p=  1 b=  4 c=  0  |        })
+1378  p=  1 b=  4 c=  0  |        .eq('id', tripId);
+1380  p=  1 b=  4 c=  0  |      if (error) throw error;
+1382  p=  1 b=  4 c=  0  |    } catch (error) {
+1383  p=  1 b=  4 c=  0  |      console.error('Error updating trip:', error);
+1384  p=  1 b=  4 c=  0  |      Alert.alert('Error', 'Failed to update trip');
+1386  p=  1 b=  3 c=  0  |    }
+1387  p=  1 b=  2 c=  0  |  };
+1389  p=  1 b=  3 c=  0  |  const syncTripDeleteToSupabase = async (tripId) => {
+1390  p=  1 b=  4 c=  0  |    try {
+1391  p=  1 b=  4 c=  0  |      const { error } = await supabase
+1392  p=  1 b=  4 c=  0  |        .from('trip_logs')
+1393  p=  1 b=  4 c=  0  |        .delete()
+1394  p=  1 b=  4 c=  0  |        .eq('id', tripId);
+1395  p=  1 b=  4 c=  0  |      if (error) throw error;
+1397  p=  1 b=  4 c=  0  |    } catch (error) {
+1398  p=  1 b=  4 c=  0  |      console.error('Error deleting trip:', error);
+1399  p=  1 b=  4 c=  0  |      Alert.alert('Error', 'Failed to delete trip');
+1401  p=  1 b=  3 c=  0  |    }
+1402  p=  1 b=  2 c=  0  |  };
+1407  p=  1 b=  3 c=  0  |  const saveProfileData = async (updatedProfile) => {
+1408  p=  1 b=  4 c=  0  |    try {
+1409  p=  1 b=  4 c=  0  |      setDriverName(updatedProfile.name);
+1410  p=  1 b=  4 c=  0  |      setUserEmail(updatedProfile.email);
+1411  p=  1 b=  4 c=  0  |      setVehicleInfo(updatedProfile.vehicle);
+1412  p=  1 b=  4 c=  0  |      setSubscriptionTier(updatedProfile.tier);
+1414  p=  1 b=  4 c=  0  |      await syncProfileToSupabase(updatedProfile);
+1415  p=  1 b=  4 c=  0  |      await loadUserData(user);
+1416  p=  1 b=  4 c=  0  |    } catch (e) {
+1417  p=  1 b=  4 c=  0  |      console.error("Failed to save profile", e);
+1418  p=  1 b=  3 c=  0  |    }
+1419  p=  1 b=  2 c=  0  |  };
+1424  p=  1 b=  3 c=  0  |  const saveTrips = async (newTrips) => {
+1425  p=  1 b=  3 c=  0  |    setTrips(newTrips);
+1426  p=  1 b=  2 c=  0  |  };
+1428  p=  1 b=  3 c=  0  |  const endTrip = async () => {
+1429  p=  1 b=  4 c=  0  |    try {
+1430  p=  1 b=  5 c=  0  |      if (locationUpdateInterval.current) {
+1431  p=  1 b=  5 c=  0  |        clearInterval(locationUpdateInterval.current);
+1433  p=  1 b=  4 c=  0  |      }
+1435  p=  1 b=  5 c=  0  |      if (watchSubscriptionRef.current) {
+1436  p=  1 b=  5 c=  0  |        watchSubscriptionRef.current.remove();
+1438  p=  1 b=  4 c=  0  |      }
+1440  p=  1 b=  4 c=  0  |      await stopBackgroundTracking();
+1442  p=  1 b=  4 c=  0  |      setIsTrackingActive(false);
+1443  p=  1 b=  4 c=  0  |      setIsTripActive(false);
+1444  p=  1 b=  4 c=  0  |      setTracking(false);
+1445  p=  1 b=  4 c=  0  |      setLoadingSummary(true);
+1447  p=  1 b=  4 c=  0  |      const endTime = new Date();
+1448  p=  1 b=  4 c=  0  |      const distanceKM = calculateDistance(route);
+1452  p=  1 b=  5 c=  0  |      if (route.length > 0) {
+1453  p=  1 b=  5 c=  0  |        const startInfo = await getAddressInfo(route[0]);
+1454  p=  1 b=  5 c=  0  |        const endInfo = await getAddressInfo(route[route.length - 1]);
+1458  p=  1 b=  4 c=  0  |      }
+1460  p=  1 b=  4 c=  0  |      const startDateObj = new Date(startTime);
+1461  p=  1 b=  4 c=  0  |      const dateString = startDateObj.toLocaleDateString();
+1463  p=  1 b=  5 c=  0  |      const tripData = {
+1465  p=  1 b=  5 c=  0  |        year: startDateObj.getFullYear().toString(),
+1466  p=  1 b=  5 c=  0  |        month: String(startDateObj.getMonth() + 1).padStart(2, '0'),
+1467  p=  1 b=  5 c=  0  |        time: `${startTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - ${endTime.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`,
+1473  p=  1 b=  5 c=  0  |        distance: parseFloat(distanceKM),
+1475  p=  1 b=  4 c=  0  |      };
+1477  p=  1 b=  4 c=  0  |      const savedTrip = await syncTripToSupabase(tripData);
+1479  p=  1 b=  5 c=  0  |      if (savedTrip) {
+1480  p=  1 b=  6 c=  0  |        const newTrip = {
+1483  p=  1 b=  5 c=  0  |        };
+1484  p=  1 b=  5 c=  0  |        const updatedHistory = [newTrip, ...trips];
+1485  p=  1 b=  5 c=  0  |        await saveTrips(updatedHistory);
+1486  p=  1 b=  5 c=  0  |        setActiveTrip(newTrip);
+1487  p=  1 b=  5 c=  0  |        setViewingTrip(newTrip);
+1489  p=  1 b=  5 c=  0  |        await ReferralService.checkAndRewardReferral(user.id);
+1490  p=  1 b=  4 c=  0  |      }
+1492  p=  1 b=  4 c=  0  |      await AsyncStorage.removeItem('@is_tracking');
+1493  p=  1 b=  4 c=  0  |      await AsyncStorage.removeItem('@background_route');
+1494  p=  1 b=  4 c=  0  |      await AsyncStorage.removeItem('@start_time');
+1495  p=  1 b=  4 c=  0  |      await AsyncStorage.removeItem('@selected_purpose');
+1496  p=  1 b=  4 c=  0  |      await AsyncStorage.removeItem('@selected_category');
+1498  p=  1 b=  4 c=  0  |      setLoadingSummary(false);
+1499  p=  1 b=  4 c=  0  |      setActiveTab('home');
+1500  p=  1 b=  4 c=  0  |      Alert.alert('✅ Trip Completed!', `Your trip of ${distanceKM} km has been saved.`);
+1501  p=  1 b=  4 c=  0  |    } catch (error) {
+1502  p=  1 b=  4 c=  0  |      console.error('Error ending trip:', error);
+1503  p=  1 b=  4 c=  0  |      setLoadingSummary(false);
+1504  p=  1 b=  4 c=  0  |      Alert.alert('Error', 'Failed to end trip: ' + error.message);
+1505  p=  1 b=  3 c=  0  |    }
+1506  p=  1 b=  2 c=  0  |  };
+1508  p=  1 b=  3 c=  0  |  const handleSaveEdit = async () => {
+1509  p=  1 b=  3 c=  0  |    const distNum = parseFloat(editDistance);
+1510  p=  1 b=  4 c=  0  |    if (isNaN(distNum) || distNum < 0) {
+1511  p=  1 b=  4 c=  0  |      Alert.alert('Invalid Distance', 'Please enter a valid distance.');
+1513  p=  1 b=  3 c=  0  |    }
+1515  p=  1 b=  4 c=  0  |    const updatedTrip = {
+1524  p=  1 b=  3 c=  0  |    };
+1526  p=  1 b=  3 c=  0  |    const success = await syncTripUpdateToSupabase(editingTrip.id, updatedTrip);
+1528  p=  1 b=  4 c=  0  |    if (success) {
+1529  p=  2 b=  5 c=  0  |      const updatedTrips = trips.map((item) => {
+1530  p=  2 b=  6 c=  0  |        if (item.id === editingTrip.id) {
+1531  p=  2 b=  7 c=  0  |          return {
+1541  p=  2 b=  6 c=  0  |          };
+1542  p=  2 b=  5 c=  0  |        }
+1544  p=  1 b=  4 c=  0  |      });
+1546  p=  1 b=  4 c=  0  |      await saveTrips(updatedTrips);
+1548  p=  1 b=  5 c=  0  |      if (viewingTrip && viewingTrip.id === editingTrip.id) {
+1549  p=  1 b=  5 c=  0  |        const updatedTripData = updatedTrips.find(t => t.id === editingTrip.id);
+1550  p=  1 b=  5 c=  0  |        setViewingTrip(updatedTripData);
+1551  p=  1 b=  5 c=  0  |        setActiveTrip(updatedTripData);
+1552  p=  1 b=  4 c=  0  |      }
+1554  p=  1 b=  4 c=  0  |      setEditingTrip(null);
+1555  p=  1 b=  4 c=  0  |      Alert.alert('Success', 'Trip updated successfully!');
+1556  p=  1 b=  3 c=  0  |    }
+1557  p=  1 b=  2 c=  0  |  };
+1559  p=  1 b=  3 c=  0  |  const handleDeleteTrip = (id) => {
+1560  p=  2 b=  3 c=  1  |    Alert.alert("Delete Trip", "Are you sure you want to remove this trip?", [
+1561  p=  2 b=  3 c=  1  |      { text: "Cancel", style: "cancel" },
+1562  p=  2 b=  4 c=  1  |      {
+1565  p=  2 b=  5 c=  1  |        onPress: async () => {
+1566  p=  2 b=  5 c=  1  |          const success = await syncTripDeleteToSupabase(id);
+1567  p=  2 b=  6 c=  1  |          if (success) {
+1568  p=  2 b=  6 c=  1  |            const updated = trips.filter(item => item.id !== id);
+1569  p=  2 b=  6 c=  1  |            await saveTrips(updated);
+1570  p=  2 b=  7 c=  1  |            if (viewingTrip && viewingTrip.id === id) {
+1571  p=  2 b=  7 c=  1  |              setViewingTrip(null);
+1572  p=  2 b=  7 c=  1  |              setActiveTrip(null);
+1573  p=  2 b=  7 c=  1  |              setActiveTab('home');
+1574  p=  2 b=  6 c=  1  |            }
+1575  p=  2 b=  5 c=  1  |          }
+1576  p=  2 b=  4 c=  1  |        }
+1577  p=  2 b=  3 c=  1  |      }
+1578  p=  1 b=  3 c=  0  |    ]);
+1579  p=  1 b=  2 c=  0  |  };
+1584  p=  1 b=  3 c=  0  |  const getAddressInfo = async (coords) => {
+1585  p=  1 b=  3 c=  0  |    if (!coords) return { simpleAddress: 'N/A', placeName: '' };
+1586  p=  1 b=  4 c=  0  |    try {
+1587  p=  2 b=  5 c=  0  |      const [address] = await Location.reverseGeocodeAsync({
+1590  p=  1 b=  4 c=  0  |      });
+1592  p=  1 b=  5 c=  0  |      if (address) {
+1595  p=  1 b=  5 c=  0  |        const simpleParts = [district, city].filter(Boolean);
+1596  p=  1 b=  5 c=  0  |        const simpleAddress = simpleParts.length > 0 ? simpleParts.join(', ') : `${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}`;
+1598  p=  1 b=  5 c=  0  |        return { simpleAddress, placeName };
+1599  p=  1 b=  4 c=  0  |      }
+1600  p=  1 b=  4 c=  0  |    } catch (error) {
+1601  p=  1 b=  4 c=  0  |      console.error("Geocoding Error:", error);
+1602  p=  1 b=  3 c=  0  |    }
+1603  p=  1 b=  3 c=  0  |    return { simpleAddress: `${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}`, placeName: '' };
+1604  p=  1 b=  2 c=  0  |  };
+1606  p=  1 b=  3 c=  0  |  const calculateDistance = (coords) => {
+1608  p=  1 b=  4 c=  0  |    for (let i = 0; i < coords.length - 1; i++) {
+1609  p=  1 b=  4 c=  0  |      const lat1 = coords[i].latitude, lon1 = coords[i].longitude;
+1610  p=  1 b=  4 c=  0  |      const lat2 = coords[i+1].latitude, lon2 = coords[i+1].longitude;
+1613  p=  1 b=  4 c=  0  |      const Δφ = (lat2 - lat1) * Math.PI / 180;
+1614  p=  1 b=  4 c=  0  |      const Δλ = (lon2 - lon1) * Math.PI / 180;
+1615  p=  1 b=  4 c=  0  |      const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
+1616  p=  1 b=  4 c=  0  |      totalMeters += R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+1617  p=  1 b=  3 c=  0  |    }
+1618  p=  1 b=  3 c=  0  |    return (totalMeters / 1000).toFixed(2);
+1619  p=  1 b=  2 c=  0  |  };
+1621  p=  1 b=  3 c=  0  |  const handleInitiateNewTrip = () => {
+1622  p=  1 b=  4 c=  0  |    if (isTripActive || isTrackingRef.current) {
+1623  p=  2 b=  4 c=  0  |      Alert.alert(
+1626  p=  2 b=  4 c=  1  |        [
+1627  p=  2 b=  4 c=  1  |          { text: "OK" },
+1628  p=  2 b=  4 c=  1  |          { text: "Go to Tracking", onPress: () => setActiveTab('tracking') }
+1629  p=  2 b=  4 c=  0  |        ]
+1630  p=  1 b=  4 c=  0  |      );
+1632  p=  1 b=  3 c=  0  |    }
+1634  p=  1 b=  4 c=  0  |    if (isUsageLimitReached) {
+1635  p=  2 b=  4 c=  0  |      Alert.alert(
+1637  p=  2 b=  4 c=  0  |        `You have reached your limit of ${currentLimit} trips this month on the ${subscriptionTier} plan.`,
+1638  p=  2 b=  4 c=  1  |        [
+1639  p=  2 b=  4 c=  1  |          { text: "Cancel", style: "cancel" },
+1640  p=  2 b=  4 c=  1  |          { text: "View Upgrade Options", onPress: () => setShowSubscriptionModal(true) }
+1641  p=  2 b=  4 c=  0  |        ]
+1642  p=  1 b=  4 c=  0  |      );
+1644  p=  1 b=  3 c=  0  |    }
+1645  p=  1 b=  3 c=  0  |    setActiveTab('purpose_select');
+1646  p=  1 b=  2 c=  0  |  };
+1648  p=  1 b=  3 c=  0  |  const startTripWithPurpose = async (purposeName) => {
+1649  p=  1 b=  4 c=  0  |    try {
+1650  p=  1 b=  5 c=  0  |      if (isTripActive || isTrackingRef.current) {
+1651  p=  2 b=  5 c=  0  |        Alert.alert(
+1654  p=  1 b=  5 c=  0  |        );
+1656  p=  1 b=  4 c=  0  |      }
+1658  p=  1 b=  4 c=  0  |      let { status } = await Location.requestForegroundPermissionsAsync();
+1659  p=  1 b=  5 c=  0  |      if (status !== 'granted') {
+1660  p=  1 b=  5 c=  0  |        Alert.alert('Permission Denied', 'Location permission is required for tracking.');
+1662  p=  1 b=  4 c=  0  |      }
+1664  p=  1 b=  4 c=  0  |      setSelectedPurpose(purposeName);
+1665  p=  1 b=  4 c=  0  |      setRoute([]);
+1666  p=  1 b=  4 c=  0  |      routeRef.current = [];
+1667  p=  1 b=  4 c=  0  |      setActiveTrip(null);
+1668  p=  1 b=  4 c=  0  |      setStartTime(new Date());
+1669  p=  1 b=  4 c=  0  |      setTracking(true);
+1671  p=  1 b=  4 c=  0  |      setIsTrackingActive(true);
+1672  p=  1 b=  4 c=  0  |      setIsTripActive(true);
+1673  p=  1 b=  4 c=  0  |      setActiveTab('tracking');
+1675  p=  2 b=  4 c=  0  |      const sub = await Location.watchPositionAsync(
+1676  p=  2 b=  5 c=  0  |        {
+1680  p=  2 b=  4 c=  0  |        },
+1681  p=  2 b=  5 c=  0  |        async (loc) => {
+1682  p=  2 b=  6 c=  0  |          const newPoint = {
+1685  p=  2 b=  5 c=  0  |          };
+1687  p=  3 b=  6 c=  0  |          setRoute(prev => {
+1688  p=  3 b=  6 c=  0  |            const newRoute = [...prev, newPoint];
+1691  p=  2 b=  5 c=  0  |          });
+1693  p=  2 b=  5 c=  0  |          const now = Date.now();
+1694  p=  2 b=  6 c=  0  |          if (!lastLocationUpdate || now - lastLocationUpdate > 10000) {
+1695  p=  2 b=  6 c=  0  |            setLastLocationUpdate(now);
+1696  p=  2 b=  7 c=  0  |            try {
+1697  p=  3 b=  8 c=  0  |              const [address] = await Location.reverseGeocodeAsync({
+1700  p=  2 b=  7 c=  0  |              });
+1701  p=  2 b=  8 c=  0  |              if (address) {
+1704  p=  2 b=  8 c=  0  |                const fullAddress = area ? `${street}, ${area}` : street;
+1705  p=  2 b=  8 c=  0  |                setCurrentAddress(fullAddress);
+1706  p=  2 b=  7 c=  0  |              }
+1707  p=  2 b=  7 c=  0  |            } catch (e) {
+1708  p=  2 b=  7 c=  0  |              console.log('Geocode error:', e);
+1709  p=  2 b=  6 c=  0  |            }
+1710  p=  2 b=  5 c=  0  |          }
+1711  p=  2 b=  4 c=  0  |        }
+1712  p=  1 b=  4 c=  0  |      );
+1716  p=  1 b=  5 c=  0  |      try {
+1717  p=  1 b=  5 c=  0  |        await startBackgroundTracking();
+1718  p=  1 b=  5 c=  0  |      } catch (bgError) {
+1719  p=  1 b=  5 c=  0  |        console.log('Background tracking not available:', bgError.message);
+1720  p=  1 b=  4 c=  0  |      }
+1722  p=  1 b=  4 c=  0  |      await AsyncStorage.setItem('@is_tracking', 'true');
+1724  p=  1 b=  4 c=  0  |      console.log('Trip tracking started successfully');
+1725  p=  1 b=  4 c=  0  |    } catch (error) {
+1726  p=  1 b=  4 c=  0  |      console.error('Error starting trip:', error);
+1727  p=  1 b=  4 c=  0  |      Alert.alert('Error', 'Failed to start trip: ' + error.message);
+1728  p=  1 b=  3 c=  0  |    }
+1729  p=  1 b=  2 c=  0  |  };
+1731  p=  1 b=  3 c=  0  |  const deleteActiveTrip = () => {
+1732  p=  2 b=  3 c=  1  |    Alert.alert("Discard Trip?", "Are you sure you want to cancel and delete this trip?", [
+1733  p=  2 b=  3 c=  1  |      { text: "Cancel", style: "cancel" },
+1734  p=  2 b=  4 c=  1  |      {
+1737  p=  2 b=  5 c=  1  |        onPress: async () => {
+1738  p=  2 b=  6 c=  1  |          try {
+1739  p=  2 b=  7 c=  1  |            if (locationUpdateInterval.current) {
+1740  p=  2 b=  7 c=  1  |              clearInterval(locationUpdateInterval.current);
+1742  p=  2 b=  6 c=  1  |            }
+1744  p=  2 b=  7 c=  1  |            if (watchSubscriptionRef.current) {
+1745  p=  2 b=  7 c=  1  |              watchSubscriptionRef.current.remove();
+1747  p=  2 b=  6 c=  1  |            }
+1749  p=  2 b=  6 c=  1  |            await stopBackgroundTracking();
+1751  p=  2 b=  6 c=  1  |            setIsTrackingActive(false);
+1752  p=  2 b=  6 c=  1  |            setIsTripActive(false);
+1753  p=  2 b=  6 c=  1  |            setSubscription(null);
+1754  p=  2 b=  6 c=  1  |            setTracking(false);
+1755  p=  2 b=  6 c=  1  |            setRoute([]);
+1756  p=  2 b=  6 c=  1  |            routeRef.current = [];
+1757  p=  2 b=  6 c=  1  |            setActiveTrip(null);
+1758  p=  2 b=  6 c=  1  |            setLoadingSummary(false);
+1759  p=  2 b=  6 c=  1  |            setActiveTab('home');
+1760  p=  2 b=  6 c=  1  |            await AsyncStorage.removeItem('@is_tracking');
+1761  p=  2 b=  6 c=  1  |            await AsyncStorage.removeItem('@background_route');
+1762  p=  2 b=  6 c=  1  |            await AsyncStorage.removeItem('@start_time');
+1763  p=  2 b=  6 c=  1  |            await AsyncStorage.removeItem('@selected_purpose');
+1764  p=  2 b=  6 c=  1  |            await AsyncStorage.removeItem('@selected_category');
+1765  p=  2 b=  6 c=  1  |            console.log('Trip discarded successfully');
+1766  p=  2 b=  6 c=  1  |          } catch (error) {
+1767  p=  2 b=  6 c=  1  |            console.error('Error discarding trip:', error);
+1768  p=  2 b=  5 c=  1  |          }
+1769  p=  2 b=  4 c=  1  |        }
+1770  p=  2 b=  3 c=  1  |      }
+1771  p=  1 b=  3 c=  0  |    ]);
+1772  p=  1 b=  2 c=  0  |  };
+1774  p=  1 b=  3 c=  0  |  const openEditModal = (trip) => {
+1775  p=  1 b=  3 c=  0  |    setEditingTrip(trip);
+1776  p=  1 b=  3 c=  0  |    setEditPurpose(trip.purpose || '');
+1777  p=  1 b=  3 c=  0  |    setEditFrom(trip.from || '');
+1778  p=  1 b=  3 c=  0  |    setEditTo(trip.to || '');
+1779  p=  1 b=  3 c=  0  |    setEditPlaceName(trip.placeName || '');
+1780  p=  1 b=  3 c=  0  |    setEditDistance(trip.distance ? trip.distance.toString() : '');
+1781  p=  1 b=  3 c=  0  |    setEditCategory(trip.purposeCategory || 'Business');
+1782  p=  1 b=  3 c=  0  |    setEditDate(trip.date || '');
+1783  p=  1 b=  3 c=  0  |    setEditTime(trip.time || '');
+1784  p=  1 b=  2 c=  0  |  };
+1789  p=  1 b=  3 c=  0  |  const addPurpose = () => {
+1790  p=  1 b=  4 c=  0  |    if (!newPurposeInput.trim()) {
+1791  p=  1 b=  4 c=  0  |      Alert.alert('Required', 'Please enter a purpose name.');
+1793  p=  1 b=  3 c=  0  |    }
+1795  p=  1 b=  3 c=  0  |    const category = managerCategory.toLowerCase();
+1796  p=  1 b=  3 c=  0  |    const currentPurposes = purposes[category] || [];
+1798  p=  1 b=  4 c=  0  |    if (currentPurposes.includes(newPurposeInput.trim())) {
+1799  p=  1 b=  4 c=  0  |      Alert.alert('Duplicate', 'This purpose already exists.');
+1801  p=  1 b=  3 c=  0  |    }
+1803  p=  1 b=  4 c=  0  |    const updatedPurposes = {
+1805  p=  1 b=  4 c=  0  |      [category]: [...currentPurposes, newPurposeInput.trim()]
+1806  p=  1 b=  3 c=  0  |    };
+1808  p=  1 b=  3 c=  0  |    setPurposes(updatedPurposes);
+1809  p=  1 b=  3 c=  0  |    setNewPurposeInput('');
+1810  p=  1 b=  3 c=  0  |    Alert.alert('Success', 'Purpose added successfully!');
+1811  p=  1 b=  2 c=  0  |  };
+1813  p=  1 b=  3 c=  0  |  const deletePurpose = (index) => {
+1814  p=  2 b=  3 c=  0  |    Alert.alert(
+1817  p=  2 b=  3 c=  1  |      [
+1818  p=  2 b=  3 c=  1  |        { text: 'Cancel', style: 'cancel' },
+1819  p=  2 b=  4 c=  1  |        {
+1822  p=  2 b=  5 c=  1  |          onPress: () => {
+1823  p=  2 b=  5 c=  1  |            const category = managerCategory.toLowerCase();
+1824  p=  2 b=  5 c=  1  |            const currentPurposes = purposes[category] || [];
+1825  p=  2 b=  6 c=  1  |            const updatedPurposes = {
+1827  p=  2 b=  6 c=  1  |              [category]: currentPurposes.filter((_, i) => i !== index)
+1828  p=  2 b=  5 c=  1  |            };
+1829  p=  2 b=  5 c=  1  |            setPurposes(updatedPurposes);
+1830  p=  2 b=  4 c=  1  |          }
+1831  p=  2 b=  3 c=  1  |        }
+1832  p=  2 b=  3 c=  0  |      ]
+1833  p=  1 b=  3 c=  0  |    );
+1834  p=  1 b=  2 c=  0  |  };
+1836  p=  1 b=  3 c=  0  |  const startEditingPurpose = (index, text) => {
+1837  p=  1 b=  3 c=  0  |    setEditingPurposeIndex(index);
+1838  p=  1 b=  3 c=  0  |    setEditingPurposeText(text);
+1839  p=  1 b=  2 c=  0  |  };
+1841  p=  1 b=  3 c=  0  |  const saveEditingPurpose = () => {
+1842  p=  1 b=  4 c=  0  |    if (!editingPurposeText.trim()) {
+1843  p=  1 b=  4 c=  0  |      Alert.alert('Required', 'Please enter a purpose name.');
+1845  p=  1 b=  3 c=  0  |    }
+1847  p=  1 b=  3 c=  0  |    const category = managerCategory.toLowerCase();
+1848  p=  1 b=  3 c=  0  |    const currentPurposes = purposes[category] || [];
+1850  p=  2 b=  3 c=  0  |    if (editingPurposeText.trim() !== currentPurposes[editingPurposeIndex] &&
+1851  p=  1 b=  4 c=  0  |        currentPurposes.includes(editingPurposeText.trim())) {
+1852  p=  1 b=  4 c=  0  |      Alert.alert('Duplicate', 'This purpose already exists.');
+1854  p=  1 b=  3 c=  0  |    }
+1856  p=  1 b=  4 c=  0  |    const updatedPurposes = {
+1858  p=  2 b=  4 c=  0  |      [category]: currentPurposes.map((p, i) =>
+1859  p=  2 b=  4 c=  0  |        i === editingPurposeIndex ? editingPurposeText.trim() : p
+1860  p=  1 b=  4 c=  0  |      )
+1861  p=  1 b=  3 c=  0  |    };
+1863  p=  1 b=  3 c=  0  |    setPurposes(updatedPurposes);
+1864  p=  1 b=  3 c=  0  |    setEditingPurposeIndex(null);
+1865  p=  1 b=  3 c=  0  |    setEditingPurposeText('');
+1866  p=  1 b=  3 c=  0  |    Alert.alert('Success', 'Purpose updated successfully!');
+1867  p=  1 b=  2 c=  0  |  };
+1869  p=  1 b=  3 c=  0  |  const resetToDefaultPurposes = () => {
+1870  p=  2 b=  3 c=  0  |    Alert.alert(
+1873  p=  2 b=  3 c=  1  |      [
+1874  p=  2 b=  3 c=  1  |        { text: 'Cancel', style: 'cancel' },
+1875  p=  2 b=  4 c=  1  |        {
+1878  p=  2 b=  5 c=  1  |          onPress: () => {
+1879  p=  2 b=  5 c=  1  |            setPurposes(DEFAULT_PURPOSES);
+1880  p=  2 b=  5 c=  1  |            Alert.alert('Success', 'Purposes reset to default!');
+1881  p=  2 b=  4 c=  1  |          }
+1882  p=  2 b=  3 c=  1  |        }
+1883  p=  2 b=  3 c=  0  |      ]
+1884  p=  1 b=  3 c=  0  |    );
+1885  p=  1 b=  2 c=  0  |  };
+1890  p=  1 b=  3 c=  0  |  const openProfileEdit = () => {
+1891  p=  1 b=  3 c=  0  |    setEditName(driverName);
+1892  p=  1 b=  3 c=  0  |    setEditEmail(userEmail);
+1893  p=  1 b=  3 c=  0  |    setEditVehicle(vehicleInfo);
+1894  p=  1 b=  3 c=  0  |    setShowProfileEdit(true);
+1895  p=  1 b=  2 c=  0  |  };
+1897  p=  1 b=  3 c=  0  |  const saveProfileEdit = async () => {
+1898  p=  1 b=  4 c=  0  |    if (!editName.trim()) {
+1899  p=  1 b=  4 c=  0  |      Alert.alert('Required', 'Name cannot be empty.');
+1901  p=  1 b=  3 c=  0  |    }
+1903  p=  1 b=  4 c=  0  |    const updatedProfile = {
+1904  p=  1 b=  4 c=  0  |      name: editName.trim(),
+1905  p=  1 b=  4 c=  0  |      email: editEmail.trim() || 'driver@example.com',
+1906  p=  1 b=  4 c=  0  |      vehicle: editVehicle.trim() || 'Standard Vehicle',
+1908  p=  1 b=  3 c=  0  |    };
+1910  p=  1 b=  3 c=  0  |    await saveProfileData(updatedProfile);
+1911  p=  1 b=  3 c=  0  |    setShowProfileEdit(false);
+1912  p=  1 b=  3 c=  0  |    Alert.alert('Success', 'Profile updated successfully!');
+1913  p=  1 b=  2 c=  0  |  };
+1918  p=  2 b=  3 c=  0  |  const getTeamMemberNames = useCallback(() => {
+1919  p=  2 b=  3 c=  0  |    return teamMembers.map(m => m.name);
+1920  p=  1 b=  2 c=  0  |  }, [teamMembers]);
+1922  p=  2 b=  3 c=  0  |  const getMemberTrips = useCallback((memberName) => {
+1924  p=  2 b=  4 c=  0  |    if (memberName === 'ALL') {
+1925  p=  2 b=  4 c=  0  |      const teamNames = getTeamMemberNames();
+1926  p=  2 b=  4 c=  0  |      return filtered.filter(t => teamNames.includes(t.userName));
+1927  p=  2 b=  3 c=  0  |    }
+1928  p=  2 b=  3 c=  0  |    return filtered.filter(t => t.userName === memberName);
+1929  p=  1 b=  2 c=  0  |  }, [filteredTrips, getTeamMemberNames]);
+1931  p=  2 b=  3 c=  0  |  const getMemberStats = useCallback((memberName) => {
+1932  p=  2 b=  3 c=  0  |    const memberTrips = getMemberTrips(memberName);
+1934  p=  2 b=  3 c=  0  |    const totalDistance = memberTrips.reduce((acc, curr) => acc + curr.distance, 0);
+1935  p=  2 b=  3 c=  0  |    return { totalTrips, totalDistance: totalDistance.toFixed(1) };
+1936  p=  1 b=  2 c=  0  |  }, [getMemberTrips]);
+1938  p=  1 b=  3 c=  0  |  const viewMemberTripDetails = (memberName) => {
+1939  p=  1 b=  3 c=  0  |    const memberTrips = getMemberTrips(memberName);
+1940  p=  1 b=  3 c=  0  |    setSelectedMemberName(memberName);
+1941  p=  1 b=  3 c=  0  |    setSelectedMemberTrips(memberTrips);
+1942  p=  1 b=  3 c=  0  |    setShowMemberTripDetails(true);
+1943  p=  1 b=  2 c=  0  |  };
+1948  p=  1 b=  3 c=  0  |  const handleCreateGroup = () => {
+1949  p=  1 b=  3 c=  0  |    setShowCreateGroup(true);
+1950  p=  1 b=  2 c=  0  |  };
+1952  p=  1 b=  3 c=  0  |  const handleSearchGroup = () => {
+1953  p=  1 b=  3 c=  0  |    setShowSearchGroup(true);
+1954  p=  1 b=  2 c=  0  |  };
+1956  p=  1 b=  3 c=  0  |  const handleLeaveGroup = () => {
+1957  p=  2 b=  3 c=  0  |    Alert.alert(
+1960  p=  2 b=  3 c=  1  |      [
+1961  p=  2 b=  3 c=  1  |        { text: 'Cancel', style: 'cancel' },
+1962  p=  2 b=  4 c=  1  |        {
+1965  p=  2 b=  5 c=  1  |          onPress: async () => {
+1966  p=  2 b=  6 c=  1  |            try {
+1968  p=  2 b=  6 c=  1  |              const { error } = await supabase
+1969  p=  2 b=  6 c=  1  |                .from('profiles')
+1970  p=  2 b=  6 c=  1  |                .update({ team_id: null, role: 'member' })
+1971  p=  2 b=  6 c=  1  |                .eq('id', user.id);
+1973  p=  2 b=  6 c=  1  |              if (error) throw error;
+1975  p=  2 b=  6 c=  1  |              setTeamId(null);
+1976  p=  2 b=  6 c=  1  |              setIsAdmin(false);
+1977  p=  2 b=  6 c=  1  |              setHasGroup(false);
+1978  p=  2 b=  6 c=  1  |              setTeamMembers([]);
+1979  p=  2 b=  6 c=  1  |              setGroupMembers([]);
+1981  p=  2 b=  6 c=  1  |              Alert.alert('Success', 'You have left the group.');
+1982  p=  2 b=  6 c=  1  |              loadUserData(user);
+1983  p=  2 b=  6 c=  1  |            } catch (error) {
+1984  p=  2 b=  6 c=  1  |              console.error('Error leaving group:', error);
+1985  p=  2 b=  6 c=  1  |              Alert.alert('Error', 'Failed to leave group: ' + error.message);
+1986  p=  2 b=  5 c=  1  |            }
+1987  p=  2 b=  4 c=  1  |          }
+1988  p=  2 b=  3 c=  1  |        }
+1989  p=  2 b=  3 c=  0  |      ]
+1990  p=  1 b=  3 c=  0  |    );
+1991  p=  1 b=  2 c=  0  |  };
+1993  p=  1 b=  3 c=  0  |  const handleAdminGroupPanel = () => {
+1994  p=  1 b=  3 c=  0  |    setShowAdminGroupPanel(true);
+1995  p=  1 b=  2 c=  0  |  };
+2000  p=  1 b=  3 c=  0  |  const generateExcelReport = async () => {
+2001  p=  1 b=  4 c=  0  |    try {
+2002  p=  1 b=  4 c=  0  |      setIsExporting(true);
+2005  p=  1 b=  5 c=  0  |      if (allTrips.length === 0) {
+2006  p=  1 b=  5 c=  0  |        Alert.alert('No Data', 'No trips found to export.');
+2007  p=  1 b=  5 c=  0  |        setIsExporting(false);
+2009  p=  1 b=  4 c=  0  |      }
+2011  p=  1 b=  4 c=  0  |      const workbook = new ExcelJS.Workbook();
+2013  p=  1 b=  4 c=  0  |      workbook.created = new Date();
+2015  p=  1 b=  4 c=  0  |      const sheet = workbook.addWorksheet('Trip Logs');
+2017  p=  1 b=  4 c=  1  |      sheet.columns = [
+2018  p=  1 b=  4 c=  1  |        { header: 'Date', key: 'date', width: 15 },
+2019  p=  1 b=  4 c=  1  |        { header: 'Time', key: 'time', width: 20 },
+2020  p=  1 b=  4 c=  1  |        { header: 'Category', key: 'category', width: 15 },
+2021  p=  1 b=  4 c=  1  |        { header: 'Purpose', key: 'purpose', width: 25 },
+2022  p=  1 b=  4 c=  1  |        { header: 'Place Name', key: 'placeName', width: 25 },
+2023  p=  1 b=  4 c=  1  |        { header: 'From', key: 'from', width: 30 },
+2024  p=  1 b=  4 c=  1  |        { header: 'To', key: 'to', width: 30 },
+2025  p=  1 b=  4 c=  1  |        { header: 'Distance (km)', key: 'distance', width: 15 },
+2026  p=  1 b=  4 c=  1  |        { header: 'Driver', key: 'driver', width: 20 }
+2027  p=  1 b=  4 c=  0  |      ];
+2029  p=  1 b=  4 c=  0  |      const headerRow = sheet.getRow(1);
+2030  p=  1 b=  4 c=  0  |      headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+2031  p=  1 b=  4 c=  0  |      headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF007AFF' } };
+2032  p=  1 b=  4 c=  0  |      headerRow.alignment = { horizontal: 'center', vertical: 'middle' };
+2035  p=  2 b=  5 c=  0  |      allTrips.forEach((trip, index) => {
+2036  p=  3 b=  6 c=  0  |        const row = sheet.addRow({
+2046  p=  2 b=  5 c=  0  |        });
+2048  p=  2 b=  6 c=  0  |        if (index % 2 === 0) {
+2049  p=  3 b=  7 c=  0  |          row.eachCell((cell) => {
+2050  p=  3 b=  7 c=  0  |            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF5F5F5' } };
+2051  p=  2 b=  6 c=  0  |          });
+2052  p=  2 b=  5 c=  0  |        }
+2053  p=  1 b=  4 c=  0  |      });
+2055  p=  1 b=  4 c=  0  |      const totalDistance = allTrips.reduce((sum, t) => sum + (t.distance || 0), 0);
+2056  p=  2 b=  5 c=  0  |      const summaryRow = sheet.addRow({
+2064  p=  2 b=  5 c=  0  |        distance: totalDistance.toFixed(1),
+2066  p=  1 b=  4 c=  0  |      });
+2067  p=  1 b=  4 c=  0  |      summaryRow.font = { bold: true };
+2068  p=  1 b=  4 c=  0  |      summaryRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F8FF' } };
+2071  p=  1 b=  5 c=  0  |      if (currentConfig.group && teamMembers.length > 0) {
+2072  p=  1 b=  5 c=  0  |        const teamSheet = workbook.addWorksheet('Team Summary');
+2073  p=  1 b=  5 c=  1  |        teamSheet.columns = [
+2074  p=  1 b=  5 c=  1  |          { header: 'Member', key: 'name', width: 25 },
+2075  p=  1 b=  5 c=  1  |          { header: 'Trips', key: 'trips', width: 15 },
+2076  p=  1 b=  5 c=  1  |          { header: 'Distance (km)', key: 'distance', width: 20 }
+2077  p=  1 b=  5 c=  0  |        ];
+2079  p=  1 b=  5 c=  0  |        const teamHeader = teamSheet.getRow(1);
+2080  p=  1 b=  5 c=  0  |        teamHeader.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+2081  p=  1 b=  5 c=  0  |        teamHeader.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF28A745' } };
+2082  p=  1 b=  5 c=  0  |        teamHeader.alignment = { horizontal: 'center', vertical: 'middle' };
+2085  p=  2 b=  6 c=  0  |        teamMembers.forEach((member) => {
+2086  p=  2 b=  6 c=  0  |          const stats = getMemberStats(member.name);
+2087  p=  3 b=  7 c=  0  |          teamSheet.addRow({
+2091  p=  2 b=  6 c=  0  |          });
+2092  p=  1 b=  5 c=  0  |        });
+2093  p=  1 b=  4 c=  0  |      }
+2095  p=  1 b=  4 c=  0  |      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+2096  p=  1 b=  4 c=  0  |      const fileName = `mileage_report_${timestamp}.xlsx`;
+2099  p=  1 b=  5 c=  0  |      try {
+2100  p=  1 b=  5 c=  0  |        if (FileSystem.documentDirectory) baseDir = FileSystem.documentDirectory;
+2101  p=  1 b=  4 c=  0  |      } catch (e) {}
+2102  p=  1 b=  5 c=  0  |      if (!baseDir) {
+2103  p=  1 b=  6 c=  0  |        try {
+2104  p=  1 b=  6 c=  0  |          if (FileSystem.cacheDirectory) baseDir = FileSystem.cacheDirectory;
+2105  p=  1 b=  5 c=  0  |        } catch (e) {}
+2106  p=  1 b=  4 c=  0  |      }
+2107  p=  1 b=  5 c=  0  |      if (!baseDir) {
+2108  p=  1 b=  6 c=  0  |        try {
+2109  p=  1 b=  6 c=  0  |          const savedDir = await AsyncStorage.getItem('@excel_export_dir');
+2110  p=  1 b=  6 c=  0  |          if (savedDir) baseDir = savedDir;
+2111  p=  1 b=  5 c=  0  |        } catch (e) {}
+2112  p=  1 b=  4 c=  0  |      }
+2113  p=  1 b=  5 c=  0  |      if (!baseDir) {
+2115  p=  1 b=  4 c=  0  |      }
+2116  p=  3 b=  4 c=  0  |      if (!baseDir.endsWith('/') && !baseDir.endsWith('\\')) {
+2118  p=  3 b=  4 c=  0  |      }
+2119  p=  3 b=  4 c=  0  |      try {
+2120  p=  3 b=  4 c=  0  |        await AsyncStorage.setItem('@excel_export_dir', baseDir);
+2121  p=  3 b=  4 c=  0  |      } catch (e) {}
+2123  p=  3 b=  4 c=  0  |      const filePath = `${baseDir}${fileName}`;
+2124  p=  3 b=  4 c=  0  |      console.log('Saving Excel to:', filePath);
+2126  p=  3 b=  4 c=  0  |      const buffer = await workbook.xlsx.writeBuffer();
+2127  p=  3 b=  4 c=  0  |      const base64String = arrayBufferToBase64(buffer);
+2130  p=  3 b=  4 c=  0  |      await FileSystem.writeAsStringAsync(filePath, base64String, {
+2132  p=  3 b=  4 c=  0  |      });
+2134  p=  3 b=  4 c=  0  |      const fileInfo = await FileSystem.getInfoAsync(filePath);
+2135  p=  3 b=  4 c=  0  |      if (!fileInfo.exists) {
+2136  p=  3 b=  4 c=  0  |        throw new Error('File was not created successfully');
+2137  p=  3 b=  4 c=  0  |      }
+2139  p=  3 b=  4 c=  0  |      console.log('File saved successfully, size:', fileInfo.size);
+2141  p=  3 b=  4 c=  0  |      try {
+2142  p=  3 b=  4 c=  0  |        const canShare = await Sharing.isAvailableAsync();
+2143  p=  3 b=  4 c=  0  |        if (canShare) {
+2144  p=  3 b=  4 c=  0  |          await Sharing.shareAsync(filePath, {
+2148  p=  3 b=  4 c=  0  |          });
+2149  p=  3 b=  4 c=  0  |        } else {
+2150  p=  3 b=  4 c=  0  |          await Share.share({
+2154  p=  3 b=  4 c=  0  |          });
+2155  p=  3 b=  4 c=  0  |        }
+2156  p=  3 b=  4 c=  0  |      } catch (shareError) {
+2157  p=  3 b=  4 c=  0  |        console.log('Share error, but file was saved:', shareError);
+2158  p=  3 b=  4 c=  0  |        Alert.alert('File Saved', `Report saved to: ${filePath}`);
+2159  p=  3 b=  4 c=  0  |      }
+2161  p=  3 b=  4 c=  0  |      Alert.alert('Success', 'Excel report generated successfully!');
+2162  p=  3 b=  4 c=  0  |    } catch (error) {
+2163  p=  3 b=  4 c=  0  |      console.error('Error generating Excel report:', error);
+2164  p=  3 b=  4 c=  0  |      Alert.alert('Error', 'Failed to generate Excel report: ' + error.message);
+2165  p=  3 b=  4 c=  0  |    } finally {
+2166  p=  3 b=  4 c=  0  |      setIsExporting(false);
+2167  p=  3 b=  4 c=  0  |    }
+2168  p=  3 b=  4 c=  0  |  };
+2174  p=  3 b=  4 c=  0  |  const forceRefreshUserData = () => {
+2175  p=  3 b=  4 c=  0  |    console.log('🔄 Force refreshing user data...');
+2176  p=  3 b=  4 c=  0  |    if (user) {
+2177  p=  3 b=  4 c=  0  |      loadUserData(user);
+2178  p=  3 b=  4 c=  0  |    }
+2179  p=  3 b=  4 c=  0  |  };
+2181  p=  3 b=  4 c=  0  |  const handleExportExcel = () => {
+2182  p=  3 b=  4 c=  0  |    if (!currentConfig.excel) {
+2183  p=  3 b=  4 c=  0  |      Alert.alert(
+2186  p=  3 b=  4 c=  0  |        [
+2187  p=  3 b=  4 c=  0  |          { text: "Cancel", style: "cancel" },
+2188  p=  3 b=  4 c=  0  |          { text: "View Plans", onPress: () => setShowSubscriptionModal(true) }
+2189  p=  3 b=  4 c=  0  |        ]
+2190  p=  3 b=  4 c=  0  |      );
+2192  p=  3 b=  4 c=  0  |    }
+2193  p=  3 b=  4 c=  0  |    if (isExporting) {
+2194  p=  3 b=  4 c=  0  |      Alert.alert('Please wait', 'Export is already in progress...');
+2196  p=  3 b=  4 c=  0  |    }
+2197  p=  3 b=  4 c=  0  |    generateExcelReport();
+2198  p=  3 b=  4 c=  0  |  };
+2203  p=  3 b=  4 c=  0  |  if (currentScreen === 'loading' || isLoading) {
+2204  p=  3 b=  4 c=  0  |    return (
+2205  p=  3 b=  4 c=  0  |      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+2207  p=  3 b=  4 c=  0  |        <Text style={{ marginTop: 20, color: '#666' }}>Loading...</Text>
+2209  p=  3 b=  4 c=  0  |    );
+2210  p=  3 b=  4 c=  0  |  }
+2212  p=  3 b=  4 c=  0  |  if (currentScreen === 'auth') {
+2213  p=  3 b=  4 c=  0  |    return (
+2214  p=  3 b=  4 c=  0  |      <View style={[styles.container, { justifyContent: 'center', paddingHorizontal: 20 }]}>
+2215  p=  3 b=  4 c=  0  |        <ScrollView showsVerticalScrollIndicator={false}>
+2216  p=  3 b=  4 c=  0  |          <Text style={styles.welcomeTitle}>🚗 Mileage Tracker</Text>
+2217  p=  3 b=  4 c=  0  |          <Text style={styles.welcomeSub}>{isLogin ? 'Sign in to your account' : 'Create a new account'}</Text>
+2219  p=  3 b=  4 c=  0  |          <View style={styles.formGroup}>
+2220  p=  3 b=  4 c=  0  |            <Text style={styles.inputLabel}>Email Address</Text>
+2222  p=  3 b=  4 c=  0  |              style={styles.textInput}
+2225  p=  3 b=  4 c=  0  |              value={loginEmail}
+2226  p=  3 b=  4 c=  0  |              onChangeText={setLoginEmail}
+2230  p=  3 b=  4 c=  0  |            <Text style={styles.inputLabel}>Password</Text>
+2232  p=  3 b=  4 c=  0  |              style={styles.textInput}
+2235  p=  3 b=  4 c=  0  |              value={loginPassword}
+2236  p=  3 b=  4 c=  0  |              onChangeText={setLoginPassword}
+2239  p=  3 b=  4 c=  0  |            <TouchableOpacity style={styles.submitBtn} onPress={handleAuth} disabled={isLoading}>
+2240  p=  3 b=  4 c=  0  |              <Text style={styles.submitBtnText}>{isLogin ? 'Sign In' : 'Sign Up'}</Text>
+2243  p=  3 b=  4 c=  0  |            <TouchableOpacity onPress={() => setIsLogin(!isLogin)}>
+2244  p=  3 b=  4 c=  0  |              <Text style={styles.switchAuthText}>
+2245  p=  3 b=  4 c=  0  |                {isLogin ? "Don't have an account? Sign Up" : "Already have an account? Sign In"}
+2251  p=  3 b=  4 c=  0  |    );
+2252  p=  3 b=  4 c=  0  |  }
+2257  p=  3 b=  4 c=  0  |  return (
+2258  p=  3 b=  4 c=  0  |    <View style={styles.container}>
+2259  p=  3 b=  4 c=  0  |      <View style={{ flex: 1 }}>
+2260  p=  3 b=  4 c=  0  |        {/* FLOATING END TRIP BUTTON */}
+2261  p=  3 b=  4 c=  0  |        {isTripActive && (
+2262  p=  3 b=  4 c=  0  |          <View style={styles.floatingEndTripContainer}>
+2264  p=  3 b=  4 c=  0  |              style={styles.floatingEndTripBtn} 
+2265  p=  3 b=  4 c=  0  |              onPress={endTrip}
+2266  p=  3 b=  4 c=  0  |              activeOpacity={0.8}
+2268  p=  3 b=  4 c=  0  |              <Text style={styles.floatingEndTripText}>🏁 END TRIP</Text>
+2269  p=  3 b=  4 c=  0  |              <Text style={styles.floatingEndTripSub}>Points: {route.length}</Text>
+2272  p=  3 b=  4 c=  0  |        )}
+2274  p=  3 b=  4 c=  0  |        {/* HOME TAB */}
+2275  p=  3 b=  4 c=  0  |        {activeTab === 'home' && (
+2276  p=  3 b=  4 c=  0  |          <ScrollView style={styles.content}>
+2277  p=  3 b=  4 c=  0  |            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+2279  p=  3 b=  4 c=  0  |                <Text style={styles.greeting}>Hello, {driverName}! 👋</Text>
+2280  p=  3 b=  4 c=  0  |                <Text style={styles.subGreeting}>{vehicleInfo ? `🚘 ${vehicleInfo}` : 'Mileage Tracker'}</Text>
+2282  p=  3 b=  4 c=  0  |              <TouchableOpacity style={styles.tierBadge} onPress={() => setShowSubscriptionModal(true)}>
+2283  p=  3 b=  4 c=  0  |                <Text style={styles.tierBadgeText}>{subscriptionTier.toUpperCase()}</Text>
+2287  p=  3 b=  4 c=  0  |            <View style={styles.usageCard}>
+2288  p=  3 b=  4 c=  0  |              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+2289  p=  3 b=  4 c=  0  |                <Text style={styles.usageTitle}>Monthly Limit ({subscriptionTier})</Text>
+2290  p=  3 b=  4 c=  0  |                <Text style={styles.usageCountText}>{monthlyUsageCount} / {currentLimit >= 9999 ? '∞' : currentLimit} Trips</Text>
+2292  p=  3 b=  4 c=  0  |              <View style={styles.progressTrack}>
+2293  p=  3 b=  4 c=  0  |                <View style={[
+2295  p=  3 b=  4 c=  0  |                  { width: `${Math.min((monthlyUsageCount / currentLimit) * 100, 100)}%` },
+2296  p=  3 b=  4 c=  0  |                  isUsageLimitReached && { backgroundColor: '#dc3545' }
+2297  p=  3 b=  4 c=  0  |                ]} />
+2299  p=  3 b=  4 c=  0  |              {isUsageLimitReached && <Text style={styles.usageWarningText}>⚠️ Usage limit reached. Upgrade to record more trips!</Text>}
+2302  p=  3 b=  4 c=  0  |            {isTripActive && (
+2303  p=  3 b=  4 c=  0  |              <View style={styles.trackingStatusCard}>
+2304  p=  3 b=  4 c=  0  |                <Text style={styles.trackingStatusText}>🔴 TRIP IN PROGRESS</Text>
+2305  p=  3 b=  4 c=  0  |                <Text style={styles.trackingStatusSub}>Tap "END TRIP" button at bottom to finish</Text>
+2306  p=  3 b=  4 c=  0  |                <Text style={styles.trackingStatusPoints}>📍 Points tracked: {route.length}</Text>
+2308  p=  3 b=  4 c=  0  |            )}
+2311  p=  3 b=  4 c=  0  |              style={[styles.startTripBtn, (isUsageLimitReached || isTripActive) && { backgroundColor: '#6c757d' }]}
+2312  p=  3 b=  4 c=  0  |              onPress={handleInitiateNewTrip}>
+2313  p=  3 b=  4 c=  0  |              <Text style={styles.startTripBtnText}>
+2314  p=  3 b=  4 c=  0  |                {isTripActive ? '🔴 TRIP IN PROGRESS' : '🚗 START NEW TRIP'}
+2318  p=  3 b=  4 c=  0  |        )}
+2320  p=  3 b=  4 c=  0  |        {/* DASHBOARD TAB */}
+2321  p=  3 b=  4 c=  0  |        {activeTab === 'dashboard' && (
+2322  p=  3 b=  4 c=  0  |          <ScrollView style={styles.content}>
+2323  p=  3 b=  4 c=  0  |            <Text style={styles.headerTitle}>Dashboard & Analytics</Text>
+2325  p=  3 b=  4 c=  0  |            <View style={styles.dropdownContainer}>
+2326  p=  3 b=  4 c=  0  |              <Text style={styles.filterLabel}>Filter Statistics:</Text>
+2327  p=  3 b=  4 c=  0  |              <View style={styles.dropdownRow}>
+2328  p=  3 b=  4 c=  0  |                <TouchableOpacity style={styles.dropdownBtn} onPress={() => setShowYearPicker(true)}>
+2329  p=  3 b=  4 c=  0  |                  <Text style={styles.dropdownBtnText}>📅 Year: {selectedYear}</Text>
+2330  p=  3 b=  4 c=  0  |                  <Text style={styles.dropdownArrow}>▼</Text>
+2332  p=  3 b=  4 c=  0  |                <TouchableOpacity style={styles.dropdownBtn} onPress={() => setShowMonthPicker(true)}>
+2333  p=  3 b=  4 c=  0  |                  <Text style={styles.dropdownBtnText}>📆 Month: {selectedMonthNum === 'ALL' ? 'All' : MONTH_NAMES[parseInt(selectedMonthNum, 10) - 1]}</Text>
+2334  p=  3 b=  4 c=  0  |                  <Text style={styles.dropdownArrow}>▼</Text>
+2339  p=  3 b=  4 c=  0  |            <Text style={styles.sectionHeaderTitle}>👤 Personal Metrics</Text>
+2340  p=  3 b=  4 c=  0  |            <View style={styles.statsCard}>
+2341  p=  3 b=  4 c=  0  |              <View style={styles.statItem}>
+2342  p=  3 b=  4 c=  0  |                <Text style={styles.statVal}>{totalTripsCount}</Text>
+2343  p=  3 b=  4 c=  0  |                <Text style={styles.statLbl}>My Trips</Text>
+2345  p=  3 b=  4 c=  0  |              <View style={styles.statDivider} />
+2346  p=  3 b=  4 c=  0  |              <View style={styles.statItem}>
+2347  p=  3 b=  4 c=  0  |                <Text style={styles.statVal}>{totalDistanceCount} km</Text>
+2348  p=  3 b=  4 c=  0  |                <Text style={styles.statLbl}>My Distance</Text>
+2352  p=  3 b=  4 c=  0  |            {currentConfig.group && teamMembers.length > 0 ? (
+2353  p=  3 b=  4 c=  0  |              <View style={styles.groupDashboardSection}>
+2354  p=  3 b=  4 c=  0  |                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+2355  p=  3 b=  4 c=  0  |                  <Text style={styles.sectionHeaderTitle}>👑 Group Admin Overview</Text>
+2358  p=  3 b=  4 c=  0  |                <View style={[styles.statsCard, { backgroundColor: '#eef6ff' }]}>
+2359  p=  3 b=  4 c=  0  |                  <View style={styles.statItem}>
+2360  p=  3 b=  4 c=  0  |                    <Text style={[styles.statVal, { color: '#28a745' }]}>{teamStats.totalTrips}</Text>
+2361  p=  3 b=  4 c=  0  |                    <Text style={styles.statLbl}>Team Total Trips</Text>
+2363  p=  3 b=  4 c=  0  |                  <View style={styles.statDivider} />
+2364  p=  3 b=  4 c=  0  |                  <View style={styles.statItem}>
+2365  p=  3 b=  4 c=  0  |                    <Text style={[styles.statVal, { color: '#28a745' }]}>{teamStats.totalDistance} km</Text>
+2366  p=  3 b=  4 c=  0  |                    <Text style={styles.statLbl}>Team Distance</Text>
+2370  p=  3 b=  4 c=  0  |                <Text style={styles.subSectionTitle}>Team Members Activity</Text>
+2371  p=  3 b=  4 c=  0  |                {teamMembers.map((member) => {
+2372  p=  3 b=  4 c=  0  |                  const stats = getMemberStats(member.name);
+2373  p=  3 b=  4 c=  0  |                  return (
+2375  p=  3 b=  4 c=  0  |                      key={member.id}
+2376  p=  3 b=  4 c=  0  |                      style={styles.teamMemberRow}
+2377  p=  3 b=  4 c=  0  |                      onPress={() => viewMemberTripDetails(member.name)}
+2379  p=  3 b=  4 c=  0  |                      <View style={{ flex: 1 }}>
+2380  p=  3 b=  4 c=  0  |                        <Text style={styles.memberName}>
+2381  p=  3 b=  4 c=  0  |                          {member.name} {member.role === 'admin' && '(Admin)'} <Text style={styles.memberRole}>({member.role})</Text>
+2383  p=  3 b=  4 c=  0  |                        <Text style={styles.memberStats}>{stats.totalTrips} trips completed • {stats.totalDistance} km</Text>
+2385  p=  3 b=  4 c=  0  |                      <Text style={styles.memberViewBtn}>View Trips →</Text>
+2387  p=  3 b=  4 c=  0  |                  );
+2388  p=  3 b=  4 c=  0  |                })}
+2391  p=  3 b=  4 c=  0  |                  style={styles.viewAllTripsBtn}
+2392  p=  3 b=  4 c=  0  |                  onPress={() => viewMemberTripDetails('ALL')}
+2394  p=  3 b=  4 c=  0  |                  <Text style={styles.viewAllTripsBtnText}>📋 View All Team Trips ({getMemberTrips('ALL').length})</Text>
+2397  p=  3 b=  4 c=  0  |            ) : (
+2398  p=  3 b=  4 c=  0  |              <TouchableOpacity style={styles.groupUpgradeBanner} onPress={() => setShowSearchGroup(true)}>
+2399  p=  3 b=  4 c=  0  |                <Text style={styles.groupUpgradeTitle}>👥 Join or Create a Group</Text>
+2400  p=  3 b=  4 c=  0  |                <Text style={styles.groupUpgradeSub}>Join an existing group or create your own to collaborate with team members.</Text>
+2402  p=  3 b=  4 c=  0  |            )}
+2405  p=  3 b=  4 c=  0  |              style={[styles.exportBtn, isExporting && { backgroundColor: '#6c757d' }]}
+2406  p=  3 b=  4 c=  0  |              onPress={handleExportExcel}
+2407  p=  3 b=  4 c=  0  |              disabled={isExporting}
+2409  p=  3 b=  4 c=  0  |              <Text style={styles.exportBtnText}>
+2410  p=  3 b=  4 c=  0  |                {isExporting ? '⏳ Generating...' : '📊 Export Summary Report (.xlsx)'}
+2414  p=  3 b=  4 c=  0  |        )}
+2416  p=  3 b=  4 c=  0  |        {/* HISTORY TAB */}
+2417  p=  3 b=  4 c=  0  |        {activeTab === 'history' && (
+2418  p=  3 b=  4 c=  0  |          <ScrollView style={styles.content}>
+2419  p=  3 b=  4 c=  0  |            <Text style={styles.headerTitle}>Trip Logs</Text>
+2420  p=  3 b=  4 c=  0  |            {trips.length === 0 ? (
+2421  p=  3 b=  4 c=  0  |              <Text style={styles.emptyText}>No saved trips yet.</Text>
+2422  p=  3 b=  4 c=  0  |            ) : (
+2423  p=  3 b=  4 c=  0  |              trips.map((item) => (
+2424  p=  3 b=  4 c=  0  |                <View key={item.id} style={styles.historyCard}>
+2425  p=  3 b=  4 c=  0  |                  <View style={styles.historyCardHeader}>
+2426  p=  3 b=  4 c=  0  |                    <Text style={styles.historyDate}>{item.date} ({item.time})</Text>
+2427  p=  3 b=  4 c=  0  |                    <Text style={styles.historyDist}>{item.distance} km</Text>
+2429  p=  3 b=  4 c=  0  |                  <Text style={styles.historyCategoryTag}>{item.purposeCategory === 'Business' ? '💼' : '👤'} {item.purposeCategory}</Text>
+2430  p=  3 b=  4 c=  0  |                  <Text style={styles.historyPurposeTag}>🎯 Purpose: {item.purpose}</Text>
+2431  p=  3 b=  4 c=  0  |                  {item.placeName ? <Text style={styles.historyPlaceName}>🏢 Place: {item.placeName}</Text> : null}
+2432  p=  3 b=  4 c=  0  |                  <Text style={styles.historyText}>📍 From: {item.from}</Text>
+2433  p=  3 b=  4 c=  0  |                  <Text style={styles.historyText}>🏁 To: {item.to}</Text>
+2434  p=  3 b=  4 c=  0  |                  <Text style={[styles.historyText, { color: '#007AFF', fontWeight: 'bold', marginTop: 4 }]}>
+2435  p=  3 b=  4 c=  0  |                    👤 Driver: {item.userName}
+2437  p=  3 b=  4 c=  0  |                  <View style={styles.cardActionsRow}>
+2438  p=  3 b=  4 c=  0  |                    <TouchableOpacity style={styles.actionBtnEdit} onPress={() => openEditModal(item)}>
+2439  p=  3 b=  4 c=  0  |                      <Text style={styles.actionBtnEditText}>✏️ Edit</Text>
+2441  p=  3 b=  4 c=  0  |                    <TouchableOpacity style={styles.actionBtnDel} onPress={() => handleDeleteTrip(item.id)}>
+2442  p=  3 b=  4 c=  0  |                      <Text style={styles.actionBtnDelText}>🗑️ Delete</Text>
+2446  p=  3 b=  4 c=  0  |              ))
+2447  p=  3 b=  4 c=  0  |            )}
+2449  p=  3 b=  4 c=  0  |        )}
+2452  p=  3 b=  4 c=  0  |        {/* GROUPS TAB */}
+2453  p=  3 b=  4 c=  0  |        {activeTab === 'groups' && (
+2455  p=  3 b=  4 c=  0  |            user={user} onRefresh={forceRefreshUserData} 
+2456  p=  3 b=  4 c=  0  |            onRefresh={() => loadUserData(user)}
+2457  p=  3 b=  4 c=  0  |            pendingRequestsCount={pendingRequestsCount}
+2458  p=  3 b=  4 c=  0  |            onPendingUpdate={(count) => setPendingRequestsCount(count)}
+2460  p=  3 b=  4 c=  0  |        )}{/* PROFILE TAB */}
+2461  p=  3 b=  4 c=  0  |        {activeTab === 'profile' && (
+2462  p=  3 b=  4 c=  0  |          <ScrollView style={styles.content}>
+2463  p=  3 b=  4 c=  0  |            <Text style={styles.headerTitle}>User Account</Text>
+2465  p=  3 b=  4 c=  0  |            <View style={styles.profileCard}>
+2466  p=  3 b=  4 c=  0  |              <View style={styles.avatarCircle}>
+2467  p=  3 b=  4 c=  0  |                <Text style={styles.avatarText}>{driverName ? driverName.charAt(0).toUpperCase() : 'U'}</Text>
+2469  p=  3 b=  4 c=  0  |              <Text style={styles.profileName}>{driverName}</Text>
+2470  p=  3 b=  4 c=  0  |              <Text style={styles.profileEmail}>{userEmail}</Text>
+2471  p=  3 b=  4 c=  0  |              <Text style={styles.profileVehicle}>{vehicleInfo ? `🚘 ${vehicleInfo}` : 'No vehicle specified'}</Text>
+2473  p=  3 b=  4 c=  0  |              <TouchableOpacity style={styles.editProfileBtn} onPress={openProfileEdit}>
+2474  p=  3 b=  4 c=  0  |                <Text style={styles.editProfileBtnText}>✏️ Edit Profile</Text>
+2478  p=  3 b=  4 c=  0  |            <View style={styles.settingBox}>
+2479  p=  3 b=  4 c=  0  |              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+2480  p=  3 b=  4 c=  0  |                <Text style={{ fontSize: 16, fontWeight: 'bold' }}>Current Plan:</Text>
+2481  p=  3 b=  4 c=  0  |                <Text style={[styles.tierBadgeText, { color: '#007AFF' }]}>{subscriptionTier}</Text>
+2483  p=  3 b=  4 c=  0  |              {subscriptionExpiry && subscriptionStatus === 'active' && (
+2484  p=  3 b=  4 c=  0  |                <Text style={{ color: '#666', marginTop: 6, fontSize: 12 }}>
+2485  p=  3 b=  4 c=  0  |                  Expires: {new Date(subscriptionExpiry).toLocaleDateString()}
+2487  p=  3 b=  4 c=  0  |              )}
+2488  p=  3 b=  4 c=  0  |              <Text style={{ color: '#666', marginTop: 6 }}>
+2489  p=  3 b=  4 c=  0  |                Limit: {monthlyUsageCount} / {currentLimit >= 9999 ? 'Unlimited' : `${currentLimit} trips/month`}
+2491  p=  3 b=  4 c=  0  |              <TouchableOpacity style={[styles.btn, styles.startBtn, { marginTop: 12 }]} onPress={() => setShowSubscriptionModal(true)}>
+2492  p=  3 b=  4 c=  0  |                <Text style={styles.btnText}>⚡ Manage Personal Plan</Text>
+2496  p=  3 b=  4 c=  0  |            <TouchableOpacity style={styles.settingOptionRow} onPress={() => {
+2497  p=  3 b=  4 c=  0  |              setManagerCategory('Business');
+2498  p=  3 b=  4 c=  0  |              setNewPurposeInput('');
+2499  p=  3 b=  4 c=  0  |              setEditingPurposeIndex(null);
+2500  p=  3 b=  4 c=  0  |              setShowPurposeManager(true);
+2501  p=  3 b=  4 c=  0  |            }}>
+2502  p=  3 b=  4 c=  0  |              <View style={{ flex: 1 }}>
+2503  p=  3 b=  4 c=  0  |                <Text style={styles.settingOptionTitle}>🎯 Manage Purposes</Text>
+2504  p=  3 b=  4 c=  0  |                <Text style={styles.settingOptionSub}>Add, edit or delete purposes for Business & Personal categories</Text>
+2506  p=  3 b=  4 c=  0  |              <Text style={styles.settingOptionArrow}>▶</Text>
+2510  p=  3 b=  4 c=  0  |              style={[styles.btn, { backgroundColor: '#ff6f00', marginTop: 12 }]}
+2511  p=  3 b=  4 c=  0  |              onPress={() => setShowReferralScreen(true)}
+2513  p=  3 b=  4 c=  0  |              <Text style={styles.btnText}>🎁 Refer & Earn Free Months</Text>
+2516  p=  3 b=  4 c=  0  |            {isAppAdmin && (
+2518  p=  3 b=  4 c=  0  |                style={[styles.btn, { backgroundColor: '#6f42c1', marginTop: 12 }]}
+2519  p=  3 b=  4 c=  0  |                onPress={() => setShowAdminPanel(true)}
+2521  p=  3 b=  4 c=  0  |                <Text style={styles.btnText}>🔐 Admin Panel</Text>
+2523  p=  3 b=  4 c=  0  |            )}
+2525  p=  3 b=  4 c=  0  |            <TouchableOpacity style={[styles.btn, styles.deleteBtn, { marginTop: 15 }]} onPress={handleLogout}>
+2526  p=  3 b=  4 c=  0  |              <Text style={styles.btnText}>🚪 Sign Out</Text>
+2529  p=  3 b=  4 c=  0  |        )}
+2531  p=  3 b=  4 c=  0  |        {/* PURPOSE SELECT TAB */}
+2532  p=  3 b=  4 c=  0  |        {activeTab === 'purpose_select' && (
+2533  p=  3 b=  4 c=  0  |          <ScrollView style={styles.content}>
+2534  p=  3 b=  4 c=  0  |            <View style={styles.screenHeader}>
+2535  p=  3 b=  4 c=  0  |              <TouchableOpacity onPress={() => setActiveTab('home')}>
+2536  p=  3 b=  4 c=  0  |                <Text style={styles.backLink}>← Back</Text>
+2538  p=  3 b=  4 c=  0  |              <Text style={styles.headerTitle}>Select Purpose</Text>
+2540  p=  3 b=  4 c=  0  |            <View style={styles.segmentContainer}>
+2541  p=  3 b=  4 c=  0  |              <TouchableOpacity style={[styles.segmentTab, selectedCategory === 'Business' && styles.segmentTabActive]} onPress={() => setSelectedCategory('Business')}>
+2542  p=  3 b=  4 c=  0  |                <Text style={[styles.segmentText, selectedCategory === 'Business' && styles.segmentTextActive]}>💼 Business</Text>
+2544  p=  3 b=  4 c=  0  |              <TouchableOpacity style={[styles.segmentTab, selectedCategory === 'Personal' && styles.segmentTabActive]} onPress={() => setSelectedCategory('Personal')}>
+2545  p=  3 b=  4 c=  0  |                <Text style={[styles.segmentText, selectedCategory === 'Personal' && styles.segmentTextActive]}>👤 Personal</Text>
+2548  p=  3 b=  4 c=  0  |            {(purposes[selectedCategory.toLowerCase()] || []).map((item, idx) => (
+2549  p=  3 b=  4 c=  0  |              <TouchableOpacity key={idx} style={styles.purposeCard} onPress={() => startTripWithPurpose(item)}>
+2550  p=  3 b=  4 c=  0  |                <Text style={styles.purposeCardText}>{item}</Text>
+2551  p=  3 b=  4 c=  0  |                <Text style={styles.purposeCardArrow}>▶ Start</Text>
+2553  p=  3 b=  4 c=  0  |            ))}
+2555  p=  3 b=  4 c=  0  |        )}
+2557  p=  3 b=  4 c=  0  |        {/* TRACKING TAB */}
+2558  p=  3 b=  4 c=  0  |        {activeTab === 'tracking' && (
+2559  p=  3 b=  4 c=  0  |          <ScrollView style={styles.content}>
+2560  p=  3 b=  4 c=  0  |            <Text style={styles.header}>Trip Tracking</Text>
+2562  p=  3 b=  4 c=  0  |            <View style={styles.trackingStatusCard}>
+2563  p=  3 b=  4 c=  0  |              <Text style={styles.trackingStatusText}>🔴 TRIP IN PROGRESS</Text>
+2564  p=  3 b=  4 c=  0  |              <Text style={styles.trackingStatusSub}>Tracking your route...</Text>
+2565  p=  3 b=  4 c=  0  |              <Text style={styles.trackingStatusPoints}>📍 Points tracked: {route.length}</Text>
+2568  p=  3 b=  4 c=  0  |            {route.length > 0 && (
+2569  p=  3 b=  4 c=  0  |              <View style={{ padding: 16, backgroundColor: '#f3f4f6', borderRadius: 8, marginVertical: 10 }}>
+2570  p=  3 b=  4 c=  0  |                <Text style={{ fontSize: 12, color: '#666', fontWeight: 'bold' }}>CURRENT LOCATION</Text>
+2571  p=  3 b=  4 c=  0  |                <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#111', marginTop: 4 }}>
+2572  p=  3 b=  4 c=  0  |                  {currentAddress || 'Tracking location...'}
+2575  p=  3 b=  4 c=  0  |            )}
+2577  p=  3 b=  4 c=  0  |            <View style={styles.trackingControls}>
+2578  p=  3 b=  4 c=  0  |              <TouchableOpacity style={[styles.btn, styles.endBtn, { flex: 1, marginRight: 8 }]} onPress={endTrip}>
+2579  p=  3 b=  4 c=  0  |                <Text style={styles.btnText}>🏁 End Trip</Text>
+2581  p=  3 b=  4 c=  0  |              <TouchableOpacity style={[styles.btn, styles.deleteBtn, { flex: 1, marginLeft: 8 }]} onPress={deleteActiveTrip}>
+2582  p=  3 b=  4 c=  0  |                <Text style={styles.btnText}>🗑️ Discard</Text>
+2586  p=  3 b=  4 c=  0  |            {loadingSummary && (
+2587  p=  3 b=  4 c=  0  |              <View style={{ marginVertical: 20 }}>
+2589  p=  3 b=  4 c=  0  |                <Text style={{ textAlign: 'center', marginTop: 10 }}>Saving trip...</Text>
+2591  p=  3 b=  4 c=  0  |            )}
+2593  p=  3 b=  4 c=  0  |            {activeTrip && !loadingSummary && (
+2594  p=  3 b=  4 c=  0  |              <View style={styles.summaryCard}>
+2595  p=  3 b=  4 c=  0  |                <Text style={styles.summaryTitle}>✅ Trip Completed</Text>
+2596  p=  3 b=  4 c=  0  |                <View style={styles.summaryRow}>
+2597  p=  3 b=  4 c=  0  |                  <Text style={styles.summaryLabel}>📅 Date:</Text>
+2598  p=  3 b=  4 c=  0  |                  <Text style={styles.summaryValue}>{activeTrip.date}</Text>
+2600  p=  3 b=  4 c=  0  |                <View style={styles.summaryRow}>
+2601  p=  3 b=  4 c=  0  |                  <Text style={styles.summaryLabel}>⏰ Time:</Text>
+2602  p=  3 b=  4 c=  0  |                  <Text style={styles.summaryValue}>{activeTrip.time}</Text>
+2604  p=  3 b=  4 c=  0  |                <View style={styles.summaryRow}>
+2605  p=  3 b=  4 c=  0  |                  <Text style={styles.summaryLabel}>📂 Category:</Text>
+2606  p=  3 b=  4 c=  0  |                  <Text style={[styles.summaryValue, styles.categoryBadge]}>
+2607  p=  3 b=  4 c=  0  |                    {activeTrip.purposeCategory === 'Business' ? '💼' : '👤'} {activeTrip.purposeCategory}
+2610  p=  3 b=  4 c=  0  |                <View style={styles.summaryRow}>
+2611  p=  3 b=  4 c=  0  |                  <Text style={styles.summaryLabel}>🎯 Purpose:</Text>
+2612  p=  3 b=  4 c=  0  |                  <Text style={styles.summaryValue}>{activeTrip.purpose}</Text>
+2614  p=  3 b=  4 c=  0  |                {activeTrip.placeName ? (
+2615  p=  3 b=  4 c=  0  |                  <View style={styles.summaryRow}>
+2616  p=  3 b=  4 c=  0  |                    <Text style={styles.summaryLabel}>🏢 Place:</Text>
+2617  p=  3 b=  4 c=  0  |                    <Text style={styles.summaryValue}>{activeTrip.placeName}</Text>
+2619  p=  3 b=  4 c=  0  |                ) : null}
+2620  p=  3 b=  4 c=  0  |                <View style={styles.summaryRow}>
+2621  p=  3 b=  4 c=  0  |                  <Text style={styles.summaryLabel}>📍 From:</Text>
+2622  p=  3 b=  4 c=  0  |                  <Text style={styles.summaryValue}>{activeTrip.from}</Text>
+2624  p=  3 b=  4 c=  0  |                <View style={styles.summaryRow}>
+2625  p=  3 b=  4 c=  0  |                  <Text style={styles.summaryLabel}>🏁 To:</Text>
+2626  p=  3 b=  4 c=  0  |                  <Text style={styles.summaryValue}>{activeTrip.to}</Text>
+2628  p=  3 b=  4 c=  0  |                <View style={styles.summaryRow}>
+2629  p=  3 b=  4 c=  0  |                  <Text style={styles.summaryLabel}>📏 Distance:</Text>
+2630  p=  3 b=  4 c=  0  |                  <Text style={[styles.summaryValue, styles.distanceHighlight]}>{activeTrip.distance} km</Text>
+2633  p=  3 b=  4 c=  0  |                <View style={styles.summaryActions}>
+2635  p=  3 b=  4 c=  0  |                    style={[styles.summaryActionBtn, styles.summaryEditBtn]}
+2636  p=  3 b=  4 c=  0  |                    onPress={() => openEditModal(activeTrip)}
+2638  p=  3 b=  4 c=  0  |                    <Text style={styles.summaryActionBtnText}>✏️ Edit Trip</Text>
+2641  p=  3 b=  4 c=  0  |                    style={[styles.summaryActionBtn, styles.summaryDeleteBtn]}
+2642  p=  3 b=  4 c=  0  |                    onPress={() => handleDeleteTrip(activeTrip.id)}
+2644  p=  3 b=  4 c=  0  |                    <Text style={styles.summaryActionBtnText}>🗑️ Delete Trip</Text>
+2648  p=  3 b=  4 c=  0  |                <TouchableOpacity style={[styles.btn, styles.startBtn, { marginTop: 12 }]} onPress={() => setActiveTab('home')}>
+2649  p=  3 b=  4 c=  0  |                  <Text style={styles.btnText}>Return to Home</Text>
+2652  p=  3 b=  4 c=  0  |            )}
+2654  p=  3 b=  4 c=  0  |        )}
+2657  p=  3 b=  4 c=  0  |      {/* Bottom Tab Bar */}
+2658  p=  3 b=  4 c=  0  |      <View style={styles.bottomTabBar}>
+2659  p=  3 b=  4 c=  0  |        <TouchableOpacity style={styles.bottomTabItem} onPress={() => setActiveTab('home')}>
+2660  p=  3 b=  4 c=  0  |          <Text style={[styles.bottomTabIcon, activeTab === 'home' && styles.bottomTabIconActive]}>🏠</Text>
+2661  p=  3 b=  4 c=  0  |          <Text style={[styles.bottomTabText, activeTab === 'home' && styles.bottomTabTextActive]}>Home</Text>
+2663  p=  3 b=  4 c=  0  |        <TouchableOpacity style={styles.bottomTabItem} onPress={() => setActiveTab('dashboard')}>
+2664  p=  3 b=  4 c=  0  |          <Text style={[styles.bottomTabIcon, activeTab === 'dashboard' && styles.bottomTabIconActive]}>📊</Text>
+2665  p=  3 b=  4 c=  0  |          <Text style={[styles.bottomTabText, activeTab === 'dashboard' && styles.bottomTabTextActive]}>Dashboard</Text>
+2667  p=  3 b=  4 c=  0  |        <TouchableOpacity style={styles.bottomTabItem} onPress={() => setActiveTab('history')}>
+2668  p=  3 b=  4 c=  0  |          <Text style={[styles.bottomTabIcon, activeTab === 'history' && styles.bottomTabIconActive]}>📋</Text>
+2669  p=  3 b=  4 c=  0  |          <Text style={[styles.bottomTabText, activeTab === 'history' && styles.bottomTabTextActive]}>History</Text>
+2672  p=  3 b=  4 c=  0  |        <TouchableOpacity style={styles.bottomTabItem} onPress={() => setActiveTab('groups')}>
+2673  p=  3 b=  4 c=  0  |          <Text style={[styles.bottomTabIcon, activeTab === 'groups' && styles.bottomTabIconActive]}>👥</Text>
+2674  p=  3 b=  4 c=  0  |          {pendingRequestsCount > 0 && (
+2675  p=  3 b=  4 c=  0  |            <View style={styles.badgeContainer}>
+2676  p=  3 b=  4 c=  0  |              <Text style={styles.badgeText}>{pendingRequestsCount}</Text>
+2678  p=  3 b=  4 c=  0  |          )}
+2679  p=  3 b=  4 c=  0  |          <Text style={[styles.bottomTabText, activeTab === 'groups' && styles.bottomTabTextActive]}>Groups</Text>
+2681  p=  3 b=  4 c=  0  |        <TouchableOpacity style={styles.bottomTabItem} onPress={() => setActiveTab('profile')}>
+2682  p=  3 b=  4 c=  0  |          <Text style={[styles.bottomTabIcon, activeTab === 'profile' && styles.bottomTabIconActive]}>👤</Text>
+2683  p=  3 b=  4 c=  0  |          <Text style={[styles.bottomTabText, activeTab === 'profile' && styles.bottomTabTextActive]}>Profile</Text>
+2687  p=  3 b=  4 c=  0  |      {/* ============================================================ */}
+2688  p=  3 b=  4 c=  0  |      {/* MODALS */}
+2689  p=  3 b=  4 c=  0  |      {/* ============================================================ */}
+2691  p=  3 b=  4 c=  0  |      {/* Create Group Screen */}
+2692  p=  3 b=  4 c=  0  |      {showCreateGroup && (
+2694  p=  3 b=  4 c=  0  |          user={user}
+2695  p=  3 b=  4 c=  0  |          onClose={() => {
+2696  p=  3 b=  4 c=  0  |            setShowCreateGroup(false);
+2697  p=  3 b=  4 c=  0  |            loadUserData(user);
+2698  p=  3 b=  4 c=  0  |          }}
+2699  p=  3 b=  4 c=  0  |          onGroupCreated={() => {
+2700  p=  3 b=  4 c=  0  |            setShowCreateGroup(false);
+2701  p=  3 b=  4 c=  0  |            loadUserData(user);
+2702  p=  3 b=  4 c=  0  |          }}
+2704  p=  3 b=  4 c=  0  |      )}
+2706  p=  3 b=  4 c=  0  |      {/* Search Group Screen */}
+2707  p=  3 b=  4 c=  0  |      {showSearchGroup && (
+2709  p=  3 b=  4 c=  0  |          user={user}
+2710  p=  3 b=  4 c=  0  |          onClose={() => {
+2711  p=  3 b=  4 c=  0  |            setShowSearchGroup(false);
+2712  p=  3 b=  4 c=  0  |            loadUserData(user);
+2713  p=  3 b=  4 c=  0  |          }}
+2714  p=  3 b=  4 c=  0  |          onJoinGroup={() => {
+2715  p=  3 b=  4 c=  0  |            setShowSearchGroup(false);
+2716  p=  3 b=  4 c=  0  |            loadUserData(user);
+2717  p=  3 b=  4 c=  0  |          }}
+2719  p=  3 b=  4 c=  0  |      )}
+2721  p=  3 b=  4 c=  0  |      {/* Admin Group Panel */}
+2722  p=  3 b=  4 c=  0  |      {showAdminGroupPanel && (
+2724  p=  3 b=  4 c=  0  |          user={user}
+2725  p=  3 b=  4 c=  0  |          teamId={teamId}
+2726  p=  3 b=  4 c=  0  |          onClose={() => {
+2727  p=  3 b=  4 c=  0  |            setShowAdminGroupPanel(false);
+2728  p=  3 b=  4 c=  0  |            loadUserData(user);
+2729  p=  3 b=  4 c=  0  |          }}
+2730  p=  3 b=  4 c=  0  |          onUpdate={() => {
+2731  p=  3 b=  4 c=  0  |            loadUserData(user);
+2732  p=  3 b=  4 c=  0  |          }}
+2734  p=  3 b=  4 c=  0  |      )}
+2736  p=  3 b=  4 c=  0  |      {/* Admin Panel Modal */}
+2737  p=  3 b=  4 c=  0  |      {showAdminPanel && (
+2739  p=  3 b=  4 c=  0  |          user={user}
+2740  p=  3 b=  4 c=  0  |          onClose={() => setShowAdminPanel(false)} onRefresh={forceRefreshUserData}
+2742  p=  3 b=  4 c=  0  |      )}
+2744  p=  3 b=  4 c=  0  |      {/* Referral Screen Modal */}
+2745  p=  3 b=  4 c=  0  |      {showReferralScreen && (
+2747  p=  3 b=  4 c=  0  |          user={user}
+2748  p=  3 b=  4 c=  0  |          onClose={() => setShowReferralScreen(false)}
+2750  p=  3 b=  4 c=  0  |      )}
+2752  p=  3 b=  4 c=  0  |      {/* Profile Edit Modal */}
+2753  p=  3 b=  4 c=  0  |      <Modal visible={showProfileEdit} animationType="slide" transparent onRequestClose={() => setShowProfileEdit(false)}>
+2754  p=  3 b=  4 c=  0  |        <View style={styles.modalOverlay}>
+2755  p=  3 b=  4 c=  0  |          <View style={styles.modalContent}>
+2756  p=  3 b=  4 c=  0  |            <Text style={styles.modalTitle}>Edit Profile</Text>
+2757  p=  3 b=  4 c=  0  |            <Text style={styles.inputLabel}>Full Name *</Text>
+2758  p=  3 b=  4 c=  0  |            <TextInput style={styles.textInput} value={editName} onChangeText={setEditName} placeholder="Your full name" />
+2759  p=  3 b=  4 c=  0  |            <Text style={styles.inputLabel}>Email Address</Text>
+2760  p=  3 b=  4 c=  0  |            <TextInput style={styles.textInput} value={editEmail} onChangeText={setEditEmail} placeholder="your@email.com" keyboardType="email-address" />
+2761  p=  3 b=  4 c=  0  |            <Text style={styles.inputLabel}>Vehicle Model / Plate No.</Text>
+2762  p=  3 b=  4 c=  0  |            <TextInput style={styles.textInput} value={editVehicle} onChangeText={setEditVehicle} placeholder="e.g. Honda City (WXX 1234)" />
+2763  p=  3 b=  4 c=  0  |            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 20 }}>
+2764  p=  3 b=  4 c=  0  |              <TouchableOpacity style={[styles.btn, { backgroundColor: '#6c757d', flex: 1, marginRight: 8 }]} onPress={() => setShowProfileEdit(false)}>
+2765  p=  3 b=  4 c=  0  |                <Text style={styles.btnText}>Cancel</Text>
+2767  p=  3 b=  4 c=  0  |              <TouchableOpacity style={[styles.btn, { backgroundColor: '#007AFF', flex: 1, marginLeft: 8 }]} onPress={saveProfileEdit}>
+2768  p=  3 b=  4 c=  0  |                <Text style={styles.btnText}>Save Changes</Text>
+2775  p=  3 b=  4 c=  0  |      {/* Purpose Manager Modal */}
+2776  p=  3 b=  4 c=  0  |      <Modal visible={showPurposeManager} animationType="slide" transparent={false} onRequestClose={() => setShowPurposeManager(false)}>
+2777  p=  3 b=  4 c=  0  |        <View style={[styles.container, { paddingHorizontal: 20 }]}>
+2778  p=  3 b=  4 c=  0  |          <View style={styles.screenHeader}>
+2779  p=  3 b=  4 c=  0  |            <TouchableOpacity onPress={() => setShowPurposeManager(false)}><Text style={styles.backLink}>← Back</Text></TouchableOpacity>
+2780  p=  3 b=  4 c=  0  |            <Text style={styles.headerTitle}>Manage Purposes</Text>
+2781  p=  3 b=  4 c=  0  |            <TouchableOpacity style={styles.resetPurposesBtn} onPress={resetToDefaultPurposes}>
+2782  p=  3 b=  4 c=  0  |              <Text style={styles.resetPurposesBtnText}>Reset Defaults</Text>
+2785  p=  3 b=  4 c=  0  |          <View style={styles.segmentContainer}>
+2786  p=  3 b=  4 c=  0  |            <TouchableOpacity style={[styles.segmentTab, managerCategory === 'Business' && styles.segmentTabActive]} onPress={() => setManagerCategory('Business')}>
+2787  p=  3 b=  4 c=  0  |              <Text style={[styles.segmentText, managerCategory === 'Business' && styles.segmentTextActive]}>💼 Business</Text>
+2789  p=  3 b=  4 c=  0  |            <TouchableOpacity style={[styles.segmentTab, managerCategory === 'Personal' && styles.segmentTabActive]} onPress={() => setManagerCategory('Personal')}>
+2790  p=  3 b=  4 c=  0  |              <Text style={[styles.segmentText, managerCategory === 'Personal' && styles.segmentTextActive]}>👤 Personal</Text>
+2793  p=  3 b=  4 c=  0  |          <View style={styles.addPurposeContainer}>
+2794  p=  3 b=  4 c=  0  |            <TextInput style={[styles.textInput, { flex: 1, marginRight: 10 }]} placeholder="Add new purpose..." value={newPurposeInput} onChangeText={setNewPurposeInput} />
+2795  p=  3 b=  4 c=  0  |            <TouchableOpacity style={styles.addPurposeBtn} onPress={addPurpose}><Text style={styles.addPurposeBtnText}>+ Add</Text></TouchableOpacity>
+2797  p=  3 b=  4 c=  0  |          <ScrollView style={{ flex: 1, marginTop: 10 }}>
+2798  p=  3 b=  4 c=  0  |            {(purposes[managerCategory.toLowerCase()] || []).map((purpose, index) => (
+2799  p=  3 b=  4 c=  0  |              <View key={index} style={styles.purposeItem}>
+2800  p=  3 b=  4 c=  0  |                {editingPurposeIndex === index ? (
+2801  p=  3 b=  4 c=  0  |                  <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}>
+2802  p=  3 b=  4 c=  0  |                    <TextInput style={[styles.textInput, { flex: 1, marginRight: 10 }]} value={editingPurposeText} onChangeText={setEditingPurposeText} autoFocus />
+2803  p=  3 b=  4 c=  0  |                    <TouchableOpacity style={styles.saveEditBtn} onPress={saveEditingPurpose}><Text style={styles.saveEditBtnText}>Save</Text></TouchableOpacity>
+2804  p=  3 b=  4 c=  0  |                    <TouchableOpacity style={styles.cancelEditBtn} onPress={() => { setEditingPurposeIndex(null); setEditingPurposeText(''); }}><Text style={styles.cancelEditBtnText}>Cancel</Text></TouchableOpacity>
+2806  p=  3 b=  4 c=  0  |                ) : (
+2808  p=  3 b=  4 c=  0  |                    <Text style={styles.purposeItemText}>{purpose}</Text>
+2809  p=  3 b=  4 c=  0  |                    <View style={styles.purposeItemActions}>
+2810  p=  3 b=  4 c=  0  |                      <TouchableOpacity style={styles.purposeActionBtn} onPress={() => startEditingPurpose(index, purpose)}><Text style={styles.purposeActionEdit}>✏️</Text></TouchableOpacity>
+2811  p=  3 b=  4 c=  0  |                      <TouchableOpacity style={styles.purposeActionBtn} onPress={() => deletePurpose(index)}><Text style={styles.purposeActionDelete}>🗑️</Text></TouchableOpacity>
+2814  p=  3 b=  4 c=  0  |                )}
+2816  p=  3 b=  4 c=  0  |            ))}
+2821  p=  3 b=  4 c=  0  |      {/* Member Trip Details Modal */}
+2822  p=  3 b=  4 c=  0  |      <Modal visible={showMemberTripDetails} animationType="slide" transparent={false} onRequestClose={() => setShowMemberTripDetails(false)}>
+2823  p=  3 b=  4 c=  0  |        <View style={[styles.container, { paddingHorizontal: 20 }]}>
+2824  p=  3 b=  4 c=  0  |          <View style={styles.screenHeader}>
+2825  p=  3 b=  4 c=  0  |            <TouchableOpacity onPress={() => setShowMemberTripDetails(false)}><Text style={styles.backLink}>← Back</Text></TouchableOpacity>
+2826  p=  3 b=  4 c=  0  |            <Text style={styles.headerTitle}>{selectedMemberName === 'ALL' ? 'All Team Trips' : `${selectedMemberName}'s Trips`}</Text>
+2827  p=  3 b=  4 c=  0  |            <Text style={{ fontSize: 14, color: '#666', marginTop: 4 }}>{selectedMemberTrips.length} trips • {selectedMemberTrips.reduce((acc, t) => acc + t.distance, 0).toFixed(1)} km</Text>
+2829  p=  3 b=  4 c=  0  |          <ScrollView style={{ flex: 1 }}>
+2830  p=  3 b=  4 c=  0  |            {selectedMemberTrips.map((item) => (
+2831  p=  3 b=  4 c=  0  |              <View key={item.id} style={styles.historyCard}>
+2832  p=  3 b=  4 c=  0  |                <View style={styles.historyCardHeader}>
+2833  p=  3 b=  4 c=  0  |                  <Text style={styles.historyDate}>{item.date} ({item.time})</Text>
+2834  p=  3 b=  4 c=  0  |                  <Text style={styles.historyDist}>{item.distance} km</Text>
+2836  p=  3 b=  4 c=  0  |                <Text style={styles.historyCategoryTag}>{item.purposeCategory === 'Business' ? '💼' : '👤'} {item.purposeCategory}</Text>
+2837  p=  3 b=  4 c=  0  |                <Text style={styles.historyPurposeTag}>🎯 Purpose: {item.purpose}</Text>
+2838  p=  3 b=  4 c=  0  |                {item.placeName ? <Text style={styles.historyPlaceName}>🏢 Place: {item.placeName}</Text> : null}
+2839  p=  3 b=  4 c=  0  |                <Text style={styles.historyText}>📍 From: {item.from}</Text>
+2840  p=  3 b=  4 c=  0  |                <Text style={styles.historyText}>🏁 To: {item.to}</Text>
+2841  p=  3 b=  4 c=  0  |                <Text style={[styles.historyText, { color: '#007AFF', fontWeight: 'bold', marginTop: 4 }]}>👤 Driver: {item.userName}</Text>
+2843  p=  3 b=  4 c=  0  |            ))}
+2848  p=  3 b=  4 c=  0  |      {/* Subscription Modal - Personal Plans Only */}
+2849  p=  3 b=  4 c=  0  |      <Modal visible={showSubscriptionModal} animationType="slide" transparent={false} onRequestClose={() => setShowSubscriptionModal(false)}>
+2850  p=  3 b=  4 c=  0  |        <View style={[styles.container, { paddingHorizontal: 20 }]}>
+2851  p=  3 b=  4 c=  0  |          <View style={styles.screenHeader}>
+2852  p=  3 b=  4 c=  0  |            <TouchableOpacity onPress={() => setShowSubscriptionModal(false)}><Text style={styles.backLink}>← Close</Text></TouchableOpacity>
+2853  p=  3 b=  4 c=  0  |            <Text style={styles.headerTitle}>Personal Plans</Text>
+2855  p=  3 b=  4 c=  0  |          <ScrollView style={{ flex: 1 }}>
+2856  p=  3 b=  4 c=  0  |            {Object.keys(TIER_CONFIG).map((tierKey) => {
+2858  p=  3 b=  4 c=  0  |              if (tierKey === 'Group Basic' || tierKey === 'Group Pro') return null;
+2860  p=  3 b=  4 c=  0  |              const cfg = TIER_CONFIG[tierKey];
+2862  p=  3 b=  4 c=  0  |              const paidTiers = ['Personal Basic', 'Personal Pro'];
+2863  p=  3 b=  4 c=  0  |              const isPaid = paidTiers.includes(tierKey);
+2865  p=  3 b=  4 c=  0  |              return (
+2866  p=  3 b=  4 c=  0  |                <View key={tierKey} style={[styles.planCard, isCurrent && styles.planCardActive]}>
+2867  p=  3 b=  4 c=  0  |                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+2868  p=  3 b=  4 c=  0  |                    <Text style={styles.planTitle}>{tierKey}</Text>
+2869  p=  3 b=  4 c=  0  |                    <Text style={styles.planPrice}>{cfg.price}</Text>
+2871  p=  3 b=  4 c=  0  |                  <Text style={styles.planLimit}>{cfg.group ? `Per-Seat Billing • Max ${cfg.maxMembers} seats` : 'Personal Plan'}</Text>
+2872  p=  3 b=  4 c=  0  |                  <Text style={{ color: '#444', fontSize: 13, marginBottom: 4 }}>• Limit: {cfg.limit >= 9999 ? 'Unlimited' : `${cfg.limit} trips / mo`}</Text>
+2873  p=  3 b=  4 c=  0  |                  <Text style={{ color: '#444', fontSize: 13, marginBottom: 12 }}>• Excel Export: {cfg.excel ? '✅ Included' : '❌ Not Available'}</Text>
+2874  p=  3 b=  4 c=  0  |                  {isCurrent ? (
+2875  p=  3 b=  4 c=  0  |                    <Text style={styles.currentPlanLabel}>✓ Active Plan</Text>
+2876  p=  3 b=  4 c=  0  |                  ) : (
+2878  p=  3 b=  4 c=  0  |                      style={[styles.planSelectBtn, isPaid && { backgroundColor: '#28a745' }]}
+2879  p=  3 b=  4 c=  0  |                      onPress={() => handleUpgradeTier(tierKey)}
+2881  p=  3 b=  4 c=  0  |                      <Text style={styles.planSelectBtnText}>
+2882  p=  3 b=  4 c=  0  |                        {isPaid ? '🔒 Pay & Upgrade' : 'Switch Plan'}
+2885  p=  3 b=  4 c=  0  |                  )}
+2887  p=  3 b=  4 c=  0  |              );
+2888  p=  3 b=  4 c=  0  |            })}
+2893  p=  3 b=  4 c=  0  |      {/* Edit Trip Modal */}
+2894  p=  3 b=  4 c=  0  |      <Modal visible={editingTrip !== null} animationType="slide" transparent onRequestClose={() => setEditingTrip(null)}>
+2895  p=  3 b=  4 c=  0  |        <View style={styles.modalOverlay}>
+2896  p=  3 b=  4 c=  0  |          <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
+2897  p=  3 b=  4 c=  0  |            <Text style={styles.modalTitle}>✏️ Edit Trip</Text>
+2898  p=  3 b=  4 c=  0  |            <Text style={styles.inputLabel}>📂 Category</Text>
+2899  p=  3 b=  4 c=  0  |            <View style={styles.editCategoryContainer}>
+2900  p=  3 b=  4 c=  0  |              <TouchableOpacity style={[styles.editCategoryBtn, editCategory === 'Business' && styles.editCategoryActive]} onPress={() => setEditCategory('Business')}>
+2901  p=  3 b=  4 c=  0  |                <Text style={[styles.editCategoryText, editCategory === 'Business' && styles.editCategoryTextActive]}>💼 Business</Text>
+2903  p=  3 b=  4 c=  0  |              <TouchableOpacity style={[styles.editCategoryBtn, editCategory === 'Personal' && styles.editCategoryActive]} onPress={() => setEditCategory('Personal')}>
+2904  p=  3 b=  4 c=  0  |                <Text style={[styles.editCategoryText, editCategory === 'Personal' && styles.editCategoryTextActive]}>👤 Personal</Text>
+2907  p=  3 b=  4 c=  0  |            <Text style={styles.inputLabel}>🎯 Purpose</Text>
+2908  p=  3 b=  4 c=  0  |            <TextInput style={styles.textInput} value={editPurpose} onChangeText={setEditPurpose} placeholder="Enter purpose" />
+2909  p=  3 b=  4 c=  0  |            <Text style={styles.inputLabel}>🏢 Place Name</Text>
+2910  p=  3 b=  4 c=  0  |            <TextInput style={styles.textInput} value={editPlaceName} onChangeText={setEditPlaceName} placeholder="e.g. Office, Client Site" />
+2911  p=  3 b=  4 c=  0  |            <Text style={styles.inputLabel}>📍 From</Text>
+2912  p=  3 b=  4 c=  0  |            <TextInput style={styles.textInput} value={editFrom} onChangeText={setEditFrom} placeholder="Starting location" />
+2913  p=  3 b=  4 c=  0  |            <Text style={styles.inputLabel}>🏁 To</Text>
+2914  p=  3 b=  4 c=  0  |            <TextInput style={styles.textInput} value={editTo} onChangeText={setEditTo} placeholder="Destination" />
+2915  p=  3 b=  4 c=  0  |            <Text style={styles.inputLabel}>📅 Date</Text>
+2916  p=  3 b=  4 c=  0  |            <TextInput style={styles.textInput} value={editDate} onChangeText={setEditDate} placeholder="e.g. 12/31/2024" />
+2917  p=  3 b=  4 c=  0  |            <Text style={styles.inputLabel}>⏰ Time</Text>
+2918  p=  3 b=  4 c=  0  |            <TextInput style={styles.textInput} value={editTime} onChangeText={setEditTime} placeholder="e.g. 09:00 AM - 10:30 AM" />
+2919  p=  3 b=  4 c=  0  |            <Text style={styles.inputLabel}>📏 Distance (km)</Text>
+2920  p=  3 b=  4 c=  0  |            <TextInput style={styles.textInput} keyboardType="numeric" value={editDistance} onChangeText={setEditDistance} placeholder="0.0" />
+2921  p=  3 b=  4 c=  0  |            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 20, marginBottom: 10 }}>
+2922  p=  3 b=  4 c=  0  |              <TouchableOpacity style={[styles.btn, { backgroundColor: '#6c757d', flex: 1, marginRight: 8 }]} onPress={() => setEditingTrip(null)}><Text style={styles.btnText}>Cancel</Text></TouchableOpacity>
+2923  p=  3 b=  4 c=  0  |              <TouchableOpacity style={[styles.btn, { backgroundColor: '#007AFF', flex: 1, marginLeft: 8 }]} onPress={handleSaveEdit}><Text style={styles.btnText}>💾 Save</Text></TouchableOpacity>
+2929  p=  3 b=  4 c=  0  |      {/* Year Picker Modal */}
+2930  p=  3 b=  4 c=  0  |      <Modal visible={showYearPicker} transparent animationType="fade" onRequestClose={() => setShowYearPicker(false)}>
+2931  p=  3 b=  4 c=  0  |        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowYearPicker(false)}>
+2932  p=  3 b=  4 c=  0  |          <View style={styles.pickerModalContent}>
+2933  p=  3 b=  4 c=  0  |            <Text style={styles.modalTitle}>Select Year</Text>
+2934  p=  3 b=  4 c=  0  |            <TouchableOpacity style={styles.pickerItem} onPress={() => { setSelectedYear('ALL'); setShowYearPicker(false); }}><Text style={styles.pickerItemText}>All Years</Text></TouchableOpacity>
+2935  p=  3 b=  4 c=  0  |            {availableYears.map(yr => <TouchableOpacity key={yr} style={styles.pickerItem} onPress={() => { setSelectedYear(yr); setShowYearPicker(false); }}><Text style={styles.pickerItemText}>{yr}</Text></TouchableOpacity>)}
+2940  p=  3 b=  4 c=  0  |      {/* Month Picker Modal */}
+2941  p=  3 b=  4 c=  0  |      <Modal visible={showMonthPicker} transparent animationType="fade" onRequestClose={() => setShowMonthPicker(false)}>
+2942  p=  3 b=  4 c=  0  |        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowMonthPicker(false)}>
+2943  p=  3 b=  4 c=  0  |          <View style={styles.pickerModalContent}>
+2944  p=  3 b=  4 c=  0  |            <Text style={styles.modalTitle}>Select Month</Text>
+2945  p=  3 b=  4 c=  0  |            <ScrollView style={{ maxHeight: 300 }}>
+2946  p=  3 b=  4 c=  0  |              <TouchableOpacity style={styles.pickerItem} onPress={() => { setSelectedMonthNum('ALL'); setShowMonthPicker(false); }}><Text style={styles.pickerItemText}>All Months</Text></TouchableOpacity>
+2947  p=  3 b=  4 c=  0  |              {MONTH_NAMES.map((m, idx) => <TouchableOpacity key={m} style={styles.pickerItem} onPress={() => { setSelectedMonthNum(String(idx + 1).padStart(2, '0')); setShowMonthPicker(false); }}><Text style={styles.pickerItemText}>{m}</Text></TouchableOpacity>)}
+2953  p=  3 b=  4 c=  0  |      {/* Payment Modal */}
+2955  p=  3 b=  4 c=  0  |        visible={showPaymentModal}
+2956  p=  3 b=  4 c=  0  |        onClose={() => {
+2957  p=  3 b=  4 c=  0  |          setShowPaymentModal(false);
+2958  p=  3 b=  4 c=  0  |          setPendingTierUpgrade(null);
+2959  p=  3 b=  4 c=  0  |        }}
+2960  p=  3 b=  4 c=  0  |        tier={pendingTierUpgrade}
+2961  p=  3 b=  4 c=  0  |        userData={{
+2966  p=  3 b=  4 c=  0  |        }}
+2967  p=  3 b=  4 c=  0  |        onPaymentSuccess={handlePaymentSuccess}
+2968  p=  3 b=  4 c=  0  |        onPaymentError={handlePaymentError}
+2969  p=  3 b=  4 c=  0  |        onPaymentCancel={handlePaymentCancel}
+2972  p=  3 b=  4 c=  0  |  );
+2973  p=  3 b=  4 c=  0  |}
+2978  p=  3 b=  4 c=  0  |const styles = StyleSheet.create({
+2979  p=  3 b=  4 c=  0  |  container: { flex: 1, backgroundColor: '#f4f6f8', paddingTop: 40 },
+2980  p=  3 b=  4 c=  0  |  content: { flex: 1, paddingHorizontal: 20, marginBottom: 10 },
+2981  p=  3 b=  4 c=  0  |  welcomeTitle: { fontSize: 28, fontWeight: 'bold', color: '#1a1a1a', marginTop: 30, textAlign: 'center' },
+2982  p=  3 b=  4 c=  0  |  welcomeSub: { fontSize: 15, color: '#666', marginTop: 8, marginBottom: 25, textAlign: 'center' },
+2983  p=  3 b=  4 c=  0  |  formGroup: { backgroundColor: '#fff', padding: 20, borderRadius: 12, elevation: 2 },
+2984  p=  3 b=  4 c=  0  |  inputLabel: { fontSize: 14, fontWeight: '600', color: '#333', marginBottom: 6, marginTop: 10 },
+2985  p=  3 b=  4 c=  0  |  textInput: { backgroundColor: '#f0f2f5', borderRadius: 8, padding: 12, fontSize: 16, color: '#333' },
+2986  p=  3 b=  4 c=  0  |  submitBtn: { backgroundColor: '#007AFF', padding: 16, borderRadius: 8, alignItems: 'center', marginTop: 25 },
+2987  p=  3 b=  4 c=  0  |  submitBtnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+2988  p=  3 b=  4 c=  0  |  switchAuthText: { marginTop: 15, color: '#007AFF', textAlign: 'center', fontSize: 14 },
+2989  p=  3 b=  4 c=  0  |  greeting: { fontSize: 22, fontWeight: 'bold', color: '#1a1a1a' },
+2990  p=  3 b=  4 c=  0  |  subGreeting: { fontSize: 13, color: '#666', marginBottom: 15 },
+2991  p=  3 b=  4 c=  0  |  tierBadge: { backgroundColor: '#e7f0ff', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, borderWidth: 1, borderColor: '#007AFF' },
+2992  p=  3 b=  4 c=  0  |  tierBadgeText: { color: '#007AFF', fontWeight: 'bold', fontSize: 11 },
+2993  p=  3 b=  4 c=  0  |  usageCard: { backgroundColor: '#fff', padding: 14, borderRadius: 10, marginBottom: 15, elevation: 1 },
+2994  p=  3 b=  4 c=  0  |  usageTitle: { fontSize: 13, fontWeight: 'bold', color: '#333' },
+2995  p=  3 b=  4 c=  0  |  usageCountText: { fontSize: 13, color: '#666', fontWeight: '600' },
+2996  p=  3 b=  4 c=  0  |  progressTrack: { height: 8, backgroundColor: '#e9ecef', borderRadius: 4, overflow: 'hidden', marginTop: 6 },
+2997  p=  3 b=  4 c=  0  |  progressBar: { height: '100%', backgroundColor: '#28a745' },
+2998  p=  3 b=  4 c=  0  |  usageWarningText: { fontSize: 12, color: '#dc3545', marginTop: 6, fontWeight: 'bold' },
+2999  p=  3 b=  4 c=  0  |  trackingStatusCard: { backgroundColor: '#fff3cd', padding: 12, borderRadius: 8, marginBottom: 15, borderWidth: 1, borderColor: '#ffc107' },
+3000  p=  3 b=  4 c=  0  |  trackingStatusText: { fontSize: 14, fontWeight: 'bold', color: '#856404', textAlign: 'center' },
+3001  p=  3 b=  4 c=  0  |  trackingStatusSub: { fontSize: 12, color: '#856404', textAlign: 'center', marginTop: 2 },
+3002  p=  3 b=  4 c=  0  |  trackingStatusPoints: { fontSize: 11, color: '#856404', textAlign: 'center', marginTop: 4 },
+3003  p=  3 b=  4 c=  0  |  floatingEndTripContainer: {
+3011  p=  3 b=  4 c=  0  |    shadowOffset: { width: 0, height: 2 },
+3014  p=  3 b=  4 c=  0  |  },
+3015  p=  3 b=  4 c=  0  |  floatingEndTripBtn: {
+3023  p=  3 b=  4 c=  0  |  },
+3024  p=  3 b=  4 c=  0  |  floatingEndTripText: {
+3029  p=  3 b=  4 c=  0  |  },
+3030  p=  3 b=  4 c=  0  |  floatingEndTripSub: {
+3035  p=  3 b=  4 c=  0  |  },
+3036  p=  3 b=  4 c=  0  |  dropdownContainer: { marginBottom: 15 },
+3037  p=  3 b=  4 c=  0  |  filterLabel: { fontSize: 12, color: '#888', fontWeight: 'bold', marginBottom: 6 },
+3038  p=  3 b=  4 c=  0  |  dropdownRow: { flexDirection: 'row', justifyContent: 'space-between' },
+3039  p=  3 b=  4 c=  0  |  dropdownBtn: { flex: 0.48, backgroundColor: '#fff', padding: 12, borderRadius: 8, borderWidth: 1, borderColor: '#ddd', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+3040  p=  3 b=  4 c=  0  |  dropdownBtnText: { fontSize: 13, color: '#333', fontWeight: '600' },
+3041  p=  3 b=  4 c=  0  |  dropdownArrow: { fontSize: 10, color: '#666', marginLeft: 4 },
+3042  p=  3 b=  4 c=  0  |  sectionHeaderTitle: { fontSize: 16, fontWeight: 'bold', color: '#333', marginVertical: 8 },
+3043  p=  3 b=  4 c=  0  |  statsCard: { flexDirection: 'row', backgroundColor: '#fff', borderRadius: 12, padding: 18, justifyContent: 'space-between', alignItems: 'center', elevation: 2, marginBottom: 15 },
+3044  p=  3 b=  4 c=  0  |  statItem: { alignItems: 'center', flex: 1 },
+3045  p=  3 b=  4 c=  0  |  statVal: { fontSize: 20, fontWeight: 'bold', color: '#007AFF' },
+3046  p=  3 b=  4 c=  0  |  statLbl: { fontSize: 13, color: '#888', marginTop: 2 },
+3047  p=  3 b=  4 c=  0  |  statDivider: { width: 1, height: '80%', backgroundColor: '#eee' },
+3048  p=  3 b=  4 c=  0  |  groupDashboardSection: { marginTop: 10, marginBottom: 15 },
+3049  p=  3 b=  4 c=  0  |  subSectionTitle: { fontSize: 14, fontWeight: 'bold', color: '#555', marginBottom: 8, marginTop: 5 },
+3050  p=  3 b=  4 c=  0  |  teamMemberRow: { backgroundColor: '#fff', padding: 12, borderRadius: 8, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6, elevation: 1 },
+3051  p=  3 b=  4 c=  0  |  memberName: { fontSize: 14, fontWeight: 'bold', color: '#333' },
+3052  p=  3 b=  4 c=  0  |  memberRole: { fontSize: 12, color: '#666', fontWeight: 'normal' },
+3053  p=  3 b=  4 c=  0  |  memberStats: { fontSize: 12, color: '#777', marginTop: 2 },
+3054  p=  3 b=  4 c=  0  |  memberViewBtn: { fontSize: 13, color: '#007AFF', fontWeight: 'bold' },
+3055  p=  3 b=  4 c=  0  |  viewAllTripsBtn: { backgroundColor: '#007AFF', padding: 14, borderRadius: 8, alignItems: 'center', marginTop: 10 },
+3056  p=  3 b=  4 c=  0  |  viewAllTripsBtnText: { color: '#fff', fontSize: 15, fontWeight: 'bold' },
+3057  p=  3 b=  4 c=  0  |  groupUpgradeBanner: { backgroundColor: '#fff3cd', padding: 15, borderRadius: 10, borderWidth: 1, borderColor: '#ffeeba', marginBottom: 15 },
+3058  p=  3 b=  4 c=  0  |  groupUpgradeTitle: { fontSize: 15, fontWeight: 'bold', color: '#856404' },
+3059  p=  3 b=  4 c=  0  |  groupUpgradeSub: { fontSize: 12, color: '#856404', marginTop: 4 },
+3060  p=  3 b=  4 c=  0  |  exportBtn: { backgroundColor: '#007AFF', padding: 14, borderRadius: 8, alignItems: 'center', marginTop: 10 },
+3061  p=  3 b=  4 c=  0  |  exportBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 15 },
+3062  p=  3 b=  4 c=  0  |  startTripBtn: { backgroundColor: '#28a745', padding: 18, borderRadius: 12, alignItems: 'center', elevation: 3, marginVertical: 15 },
+3063  p=  3 b=  4 c=  0  |  startTripBtnText: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+3064  p=  3 b=  4 c=  0  |  bottomTabBar: { flexDirection: 'row', backgroundColor: '#fff', borderTopWidth: 1, borderTopColor: '#e0e0e0', paddingVertical: 8, justifyContent: 'space-around', elevation: 8 },
+3065  p=  3 b=  4 c=  0  |  bottomTabItem: { alignItems: 'center', flex: 1 },
+3066  p=  3 b=  4 c=  0  |  bottomTabIcon: { fontSize: 20, color: '#888' },
+3067  p=  3 b=  4 c=  0  |  bottomTabIconActive: { color: '#007AFF' },
+3068  p=  3 b=  4 c=  0  |  bottomTabText: { fontSize: 11, color: '#888', marginTop: 2 },
+3069  p=  3 b=  4 c=  0  |  bottomTabTextActive: { color: '#007AFF', fontWeight: 'bold' },
+3070  p=  3 b=  4 c=  0  |  profileCard: { backgroundColor: '#fff', padding: 20, borderRadius: 12, alignItems: 'center', marginBottom: 15, elevation: 1 },
+3071  p=  3 b=  4 c=  0  |  avatarCircle: { width: 60, height: 60, borderRadius: 30, backgroundColor: '#007AFF', justifyContent: 'center', alignItems: 'center', marginBottom: 10 },
+3072  p=  3 b=  4 c=  0  |  avatarText: { color: '#fff', fontSize: 24, fontWeight: 'bold' },
+3073  p=  3 b=  4 c=  0  |  profileName: { fontSize: 20, fontWeight: 'bold', color: '#1a1a1a' },
+3074  p=  3 b=  4 c=  0  |  profileEmail: { fontSize: 14, color: '#666', marginTop: 2 },
+3075  p=  3 b=  4 c=  0  |  profileVehicle: { fontSize: 13, color: '#888', marginTop: 4 },
+3076  p=  3 b=  4 c=  0  |  editProfileBtn: { backgroundColor: '#007AFF', paddingHorizontal: 20, paddingVertical: 8, borderRadius: 20, marginTop: 12 },
+3077  p=  3 b=  4 c=  0  |  editProfileBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
+3078  p=  3 b=  4 c=  0  |  segmentContainer: { flexDirection: 'row', backgroundColor: '#e9ecef', borderRadius: 8, padding: 4, marginBottom: 15 },
+3079  p=  3 b=  4 c=  0  |  segmentTab: { flex: 1, paddingVertical: 12, alignItems: 'center', borderRadius: 6 },
+3080  p=  3 b=  4 c=  0  |  segmentTabActive: { backgroundColor: '#007AFF' },
+3081  p=  3 b=  4 c=  0  |  segmentText: { fontSize: 15, fontWeight: '600', color: '#555' },
+3082  p=  3 b=  4 c=  0  |  segmentTextActive: { color: '#fff' },
+3083  p=  3 b=  4 c=  0  |  purposeCard: { backgroundColor: '#fff', padding: 16, borderRadius: 10, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10, elevation: 1 },
+3084  p=  3 b=  4 c=  0  |  purposeCardText: { fontSize: 16, fontWeight: '600', color: '#333' },
+3085  p=  3 b=  4 c=  0  |  purposeCardArrow: { fontSize: 14, color: '#007AFF', fontWeight: 'bold' },
+3086  p=  3 b=  4 c=  0  |  settingOptionRow: { backgroundColor: '#fff', padding: 18, borderRadius: 10, marginTop: 15, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', elevation: 1 },
+3087  p=  3 b=  4 c=  0  |  settingOptionTitle: { fontSize: 15, fontWeight: 'bold', color: '#333' },
+3088  p=  3 b=  4 c=  0  |  settingOptionSub: { fontSize: 12, color: '#777', marginTop: 3 },
+3089  p=  3 b=  4 c=  0  |  settingOptionArrow: { fontSize: 14, color: '#888' },
+3090  p=  3 b=  4 c=  0  |  header: { fontSize: 22, fontWeight: 'bold', marginBottom: 15, textAlign: 'center' },
+3091  p=  3 b=  4 c=  0  |  screenHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 20 },
+3092  p=  3 b=  4 c=  0  |  backLink: { fontSize: 16, color: '#007AFF', marginRight: 15 },
+3093  p=  3 b=  4 c=  0  |  headerTitle: { fontSize: 20, fontWeight: 'bold', marginBottom: 15 },
+3094  p=  3 b=  4 c=  0  |  map: { height: 250, width: '100%', borderRadius: 10, marginBottom: 15 },
+3095  p=  3 b=  4 c=  0  |  btn: { padding: 15, borderRadius: 8, alignItems: 'center' },
+3096  p=  3 b=  4 c=  0  |  startBtn: { backgroundColor: '#28a745' },
+3097  p=  3 b=  4 c=  0  |  endBtn: { backgroundColor: '#28a745' },
+3098  p=  3 b=  4 c=  0  |  deleteBtn: { backgroundColor: '#dc3545' },
+3099  p=  3 b=  4 c=  0  |  trackingControls: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 15 },
+3100  p=  3 b=  4 c=  0  |  btnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
+3101  p=  3 b=  4 c=  0  |  summaryCard: { backgroundColor: '#fff', padding: 18, borderRadius: 12, elevation: 3, marginBottom: 20, borderWidth: 1, borderColor: '#e0e0e0' },
+3102  p=  3 b=  4 c=  0  |  summaryTitle: { fontSize: 20, fontWeight: 'bold', color: '#28a745', marginBottom: 15, textAlign: 'center', borderBottomWidth: 1, borderBottomColor: '#e0e0e0', paddingBottom: 10 },
+3103  p=  3 b=  4 c=  0  |  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
+3104  p=  3 b=  4 c=  0  |  summaryLabel: { fontSize: 14, fontWeight: '600', color: '#555', flex: 0.35 },
+3105  p=  3 b=  4 c=  0  |  summaryValue: { fontSize: 14, color: '#333', flex: 0.65, textAlign: 'right' },
+3106  p=  3 b=  4 c=  0  |  categoryBadge: { fontWeight: 'bold', color: '#007AFF' },
+3107  p=  3 b=  4 c=  0  |  distanceHighlight: { fontWeight: 'bold', color: '#28a745', fontSize: 16 },
+3108  p=  3 b=  4 c=  0  |  summaryActions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 15, paddingTop: 15, borderTopWidth: 1, borderTopColor: '#e0e0e0' },
+3109  p=  3 b=  4 c=  0  |  summaryActionBtn: { flex: 1, paddingVertical: 12, borderRadius: 8, alignItems: 'center', marginHorizontal: 4 },
+3110  p=  3 b=  4 c=  0  |  summaryEditBtn: { backgroundColor: '#007AFF' },
+3111  p=  3 b=  4 c=  0  |  summaryDeleteBtn: { backgroundColor: '#dc3545' },
+3112  p=  3 b=  4 c=  0  |  summaryActionBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
+3113  p=  3 b=  4 c=  0  |  historyCard: { backgroundColor: '#fff', padding: 15, borderRadius: 10, marginBottom: 12, elevation: 1 },
+3114  p=  3 b=  4 c=  0  |  historyCardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
+3115  p=  3 b=  4 c=  0  |  historyDate: { fontWeight: 'bold', color: '#333' },
+3116  p=  3 b=  4 c=  0  |  historyDist: { fontWeight: 'bold', color: '#007AFF' },
+3117  p=  3 b=  4 c=  0  |  historyCategoryTag: { fontSize: 13, fontWeight: 'bold', color: '#007AFF', marginTop: 2 },
+3118  p=  3 b=  4 c=  0  |  historyPurposeTag: { fontSize: 13, fontWeight: 'bold', color: '#555', marginBottom: 4 },
+3119  p=  3 b=  4 c=  0  |  historyPlaceName: { fontSize: 14, fontWeight: 'bold', color: '#28a745', marginVertical: 2 },
+3120  p=  3 b=  4 c=  0  |  historyText: { fontSize: 13, color: '#555', marginTop: 2 },
+3121  p=  3 b=  4 c=  0  |  emptyText: { textAlign: 'center', color: '#888', marginTop: 40 },
+3122  p=  3 b=  4 c=  0  |  cardActionsRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 10, borderTopWidth: 1, borderTopColor: '#f0f0f0', paddingTop: 8 },
+3123  p=  3 b=  4 c=  0  |  actionBtnEdit: { marginRight: 15 },
+3124  p=  3 b=  4 c=  0  |  actionBtnEditText: { color: '#007AFF', fontWeight: '600', fontSize: 13 },
+3125  p=  3 b=  4 c=  0  |  actionBtnDelText: { color: '#dc3545', fontWeight: '600', fontSize: 13 },
+3126  p=  3 b=  4 c=  0  |  settingBox: { backgroundColor: '#fff', padding: 15, borderRadius: 10 },
+3127  p=  3 b=  4 c=  0  |  planCard: { backgroundColor: '#fff', padding: 18, borderRadius: 10, marginBottom: 12, borderWidth: 1, borderColor: '#eee', elevation: 1 },
+3128  p=  3 b=  4 c=  0  |  planCardActive: { borderColor: '#007AFF', borderWidth: 2, backgroundColor: '#f0f7ff' },
+3129  p=  3 b=  4 c=  0  |  planTitle: { fontSize: 16, fontWeight: 'bold', color: '#1a1a1a' },
+3130  p=  3 b=  4 c=  0  |  planPrice: { fontSize: 15, fontWeight: 'bold', color: '#007AFF' },
+3131  p=  3 b=  4 c=  0  |  planLimit: { fontSize: 13, color: '#666', marginBottom: 8, fontWeight: '500' },
+3132  p=  3 b=  4 c=  0  |  planSelectBtn: { backgroundColor: '#007AFF', paddingVertical: 10, borderRadius: 6, alignItems: 'center' },
+3133  p=  3 b=  4 c=  0  |  planSelectBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
+3134  p=  3 b=  4 c=  0  |  currentPlanLabel: { color: '#28a745', fontWeight: 'bold', fontSize: 14, textAlign: 'center', marginTop: 5 },
+3135  p=  3 b=  4 c=  0  |  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', paddingHorizontal: 20 },
+3136  p=  3 b=  4 c=  0  |  modalContent: { backgroundColor: '#fff', borderRadius: 12, padding: 20, elevation: 5, maxHeight: '80%' },
+3137  p=  3 b=  4 c=  0  |  pickerModalContent: { backgroundColor: '#fff', borderRadius: 12, padding: 20, marginHorizontal: 20, elevation: 5 },
+3138  p=  3 b=  4 c=  0  |  modalTitle: { fontSize: 18, fontWeight: 'bold', marginBottom: 15, textAlign: 'center' },
+3139  p=  3 b=  4 c=  0  |  pickerItem: { paddingVertical: 12, paddingHorizontal: 10, borderBottomWidth: 1, borderBottomColor: '#f0f0f0' },
+3140  p=  3 b=  4 c=  0  |  pickerItemText: { fontSize: 16, color: '#333', textAlign: 'center' },
+3141  p=  3 b=  4 c=  0  |  resetPurposesBtn: { backgroundColor: '#dc3545', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 4 },
+3142  p=  3 b=  4 c=  0  |  resetPurposesBtnText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
+3143  p=  3 b=  4 c=  0  |  addPurposeContainer: { flexDirection: 'row', alignItems: 'center', marginBottom: 15 },
+3144  p=  3 b=  4 c=  0  |  addPurposeBtn: { backgroundColor: '#28a745', paddingHorizontal: 20, paddingVertical: 12, borderRadius: 8, justifyContent: 'center' },
+3145  p=  3 b=  4 c=  0  |  addPurposeBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+3146  p=  3 b=  4 c=  0  |  purposeItem: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', backgroundColor: '#fff', padding: 12, borderRadius: 8, marginBottom: 8, elevation: 1 },
+3147  p=  3 b=  4 c=  0  |  purposeItemText: { fontSize: 15, color: '#333', flex: 1 },
+3148  p=  3 b=  4 c=  0  |  purposeItemActions: { flexDirection: 'row' },
+3149  p=  3 b=  4 c=  0  |  purposeActionBtn: { paddingHorizontal: 8, paddingVertical: 4 },
+3150  p=  3 b=  4 c=  0  |  purposeActionEdit: { fontSize: 18 },
+3151  p=  3 b=  4 c=  0  |  purposeActionDelete: { fontSize: 18 },
+3152  p=  3 b=  4 c=  0  |  saveEditBtn: { backgroundColor: '#28a745', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 4, marginRight: 6 },
+3153  p=  3 b=  4 c=  0  |  saveEditBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 12 },
+3154  p=  3 b=  4 c=  0  |  cancelEditBtn: { backgroundColor: '#6c757d', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 4 },
+3155  p=  3 b=  4 c=  0  |  cancelEditBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 12 },
+3156  p=  3 b=  4 c=  0  |  editCategoryContainer: { flexDirection: 'row', backgroundColor: '#e9ecef', borderRadius: 8, padding: 4, marginBottom: 10 },
+3157  p=  3 b=  4 c=  0  |  editCategoryBtn: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 6 },
+3158  p=  3 b=  4 c=  0  |  editCategoryActive: { backgroundColor: '#007AFF' },
+3159  p=  3 b=  4 c=  0  |  editCategoryText: { fontSize: 14, fontWeight: '600', color: '#555' },
+3160  p=  3 b=  4 c=  0  |  editCategoryTextActive: { color: '#fff' },
+3162  p=  3 b=  4 c=  0  |  badgeContainer: {
+3173  p=  3 b=  4 c=  0  |  },
+3174  p=  3 b=  4 c=  0  |  badgeText: {
+3178  p=  3 b=  4 c=  0  |  },
+3179  p=  3 b=  4 c=  0  |});
+
+FINAL p=3 b=4 c=0

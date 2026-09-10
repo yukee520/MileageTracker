@@ -6,12 +6,13 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 class GroupService {
   // ============================================================
-  // CREATE GROUP - User becomes leader
+  // CREATE GROUP - User becomes admin
   // ============================================================
   static async createGroup(userId, groupName, description = '') {
     try {
       console.log('📝 Creating group:', groupName);
-
+      
+      // Check if user already has a group
       const { data: existing, error: checkError } = await supabase
         .from('profiles')
         .select('team_id, role')
@@ -27,8 +28,10 @@ class GroupService {
         };
       }
 
+      // Generate a unique group_name from the name
       const groupNameSlug = groupName.toLowerCase().replace(/\s+/g, '-');
-
+      
+      // Check if group_name already exists (prevent duplicate)
       const { data: existingGroup, error: checkGroupError } = await supabase
         .from('teams')
         .select('id, name')
@@ -41,12 +44,13 @@ class GroupService {
 
       if (existingGroup) {
         console.log('⚠️ Group name already exists:', groupName);
-        return {
-          success: false,
-          error: `"${groupName}" is already taken. Please choose a different name.`
+        return { 
+          success: false, 
+          error: `"${groupName}" is already taken. Please choose a different name.` 
         };
       }
 
+      // Create the team
       const { data: team, error: teamError } = await supabase
         .from('teams')
         .insert({
@@ -54,7 +58,7 @@ class GroupService {
           group_name: groupNameSlug,
           description: description,
           created_by: userId,
-          subscription_tier: 'team_free',
+          subscription_tier: 'personal_free',
           monthly_trip_limit: 30,
           max_members: 10
         })
@@ -63,15 +67,17 @@ class GroupService {
 
       if (teamError) {
         console.error('❌ Team creation error:', teamError);
+        // Check for duplicate key error
         if (teamError.code === '23505') {
-          return {
-            success: false,
-            error: `"${groupName}" is already taken. Please choose a different name.`
+          return { 
+            success: false, 
+            error: `"${groupName}" is already taken. Please choose a different name.` 
           };
         }
         throw teamError;
       }
 
+      // Update user's profile to be admin of this team
       const { error: profileError } = await supabase
         .from('profiles')
         .update({
@@ -88,10 +94,11 @@ class GroupService {
       };
     } catch (error) {
       console.error('❌ Error creating group:', error);
+      // Check if it's a duplicate key error
       if (error.code === '23505' || error.message?.includes('duplicate key')) {
-        return {
-          success: false,
-          error: `"${groupName}" is already taken. Please choose a different name.`
+        return { 
+          success: false, 
+          error: `"${groupName}" is already taken. Please choose a different name.` 
         };
       }
       return { success: false, error: error.message };
@@ -176,6 +183,7 @@ class GroupService {
   // ============================================================
   static async requestToJoin(teamId, userId, message = '') {
     try {
+      // Check if already a member
       const { data: member, error: memberError } = await supabase
         .from('profiles')
         .select('team_id')
@@ -195,6 +203,7 @@ class GroupService {
         };
       }
 
+      // Check if there's a pending request
       const { data: existing, error: existingError } = await supabase
         .from('group_join_requests')
         .select('id, status')
@@ -216,6 +225,7 @@ class GroupService {
         }
       }
 
+      // Create join request
       const { data, error } = await supabase
         .from('group_join_requests')
         .insert({
@@ -236,7 +246,7 @@ class GroupService {
   }
 
   // ============================================================
-  // GET PENDING REQUESTS (for leader)
+  // GET PENDING REQUESTS (for admin)
   // ============================================================
   static async getPendingRequests(teamId) {
     try {
@@ -264,6 +274,7 @@ class GroupService {
   static async handleJoinRequest(requestId, teamId, userId, action) {
     try {
       if (action === 'approved') {
+        // Add user to team
         const { error: profileError } = await supabase
           .from('profiles')
           .update({ team_id: teamId })
@@ -272,6 +283,7 @@ class GroupService {
         if (profileError) throw profileError;
       }
 
+      // DELETE the join request (for both approved and rejected)
       const { error: deleteError } = await supabase
         .from('group_join_requests')
         .delete()
@@ -291,6 +303,7 @@ class GroupService {
   // ============================================================
   static async leaveGroup(userId) {
     try {
+      // Check if user is admin
       const { data: profile, error: profileError } = await supabase
         .from('profiles')
         .select('team_id, role')
@@ -299,7 +312,8 @@ class GroupService {
 
       if (profileError) throw profileError;
 
-      if (profile.role === 'leader') {
+      if (profile.role === 'admin') {
+        // Check if there are other members
         const { count, error: countError } = await supabase
           .from('profiles')
           .select('id', { count: 'exact' })
@@ -310,11 +324,12 @@ class GroupService {
         if (count > 1) {
           return {
             success: false,
-            error: 'You are the leader. Transfer leader role to another member before leaving.'
+            error: 'You are the admin. Transfer admin role to another member before leaving.'
           };
         }
       }
 
+      // Leave group
       const { error: updateError } = await supabase
         .from('profiles')
         .update({ team_id: null, role: 'member' })
@@ -330,15 +345,17 @@ class GroupService {
   }
 
   // ============================================================
-  // TRANSFER LEADER ROLE
+  // TRANSFER ADMIN ROLE
   // ============================================================
   static async transferAdmin(teamId, fromUserId, toUserId) {
     try {
+      // Demote current admin
       await supabase
         .from('profiles')
         .update({ role: 'member' })
         .eq('id', fromUserId);
 
+      // Promote new admin
       const { error: promoteError } = await supabase
         .from('profiles')
         .update({ role: 'leader' })

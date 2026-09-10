@@ -18,7 +18,6 @@ import { createClient } from '@supabase/supabase-js';
 import ToyyibPayService from '../services/ToyyibPayService';
 import { TOYYIBPAY_CONFIG } from '../paymentConfig';
 
-// Supabase configuration
 const SUPABASE_URL = 'https://dkpjicqepexhgbrzzreo.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_7CXIRyhWhmsQfRfj9dDhWw_Z2efV6fx';
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -48,9 +47,6 @@ const PaymentModal = ({
   const isProcessingReturn = useRef(false);
   const [returnUrlDetected, setReturnUrlDetected] = useState(false);
 
-  // ============================================================
-  // GET MEMBER COUNT
-  // ============================================================
   const getMemberCount = async () => {
     try {
       if (!userData?.teamId) return 1;
@@ -72,9 +68,6 @@ const PaymentModal = ({
     }
   };
 
-  // ============================================================
-  // EFFECTS
-  // ============================================================
   useEffect(() => {
     if (visible) {
       setPaymentStatus('init');
@@ -88,10 +81,12 @@ const PaymentModal = ({
       verificationAttemptedRef.current = false;
       isProcessingReturn.current = false;
       
-      // Get member count when modal opens
-      getMemberCount();
+      // Get member count when modal opens (for group plans)
+      if (tier && (tier === 'Group Basic' || tier === 'Group Pro')) {
+        getMemberCount();
+      }
     }
-  }, [visible]);
+  }, [visible, tier]);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', handleAppStateChange);
@@ -117,9 +112,6 @@ const PaymentModal = ({
     appStateRef.current = nextAppState;
   };
 
-  // ============================================================
-  // DEEP LINK HANDLER
-  // ============================================================
   const handleDeepLink = async (event) => {
     const { url } = event;
     console.log('🔗 Deep link received:', url);
@@ -226,29 +218,14 @@ const PaymentModal = ({
     }
   };
 
-  // ============================================================
-  // GET TIER DETAILS
-  // ============================================================
   const getTierDetails = () => {
     const pricePerSeat = tier === 'Group Basic' ? 7 : (tier === 'Group Pro' ? 12 : 0);
     const totalAmount = memberCount * pricePerSeat;
     
     const details = {
-      'Personal Basic': {
-        features: ['100 trips per month', 'Excel export included', 'RM4.99/month'],
-        color: '#007AFF',
-        price: 4.99,
-        isGroup: false
-      },
-      'Personal Pro': {
-        features: ['Unlimited trips', 'Excel export included', 'RM9.99/month'],
-        color: '#28A745',
-        price: 9.99,
-        isGroup: false
-      },
       'Group Basic': {
         features: [
-          '100 trips per month per member',
+          '100 trips/month per member',
           `Up to 10 team seats (${memberCount} current)`,
           'Excel export included',
           `RM7/seat × ${memberCount} = RM${totalAmount.toFixed(2)}/month`
@@ -273,12 +250,9 @@ const PaymentModal = ({
         memberCount: memberCount
       }
     };
-    return details[tier] || details['Personal Basic'];
+    return details[tier] || null;
   };
 
-  // ============================================================
-  // INITIATE PAYMENT
-  // ============================================================
   const initiatePayment = async () => {
     try {
       setLoading(true);
@@ -320,9 +294,6 @@ const PaymentModal = ({
     }
   };
 
-  // ============================================================
-  // WEBVIEW NAVIGATION HANDLER
-  // ============================================================
   const handleWebViewNavigation = (event) => {
     const { url } = event;
     console.log('🌐 Navigation:', url);
@@ -387,9 +358,6 @@ const PaymentModal = ({
     return true;
   };
 
-  // ============================================================
-  // PROCESS PAYMENT COMPLETION
-  // ============================================================
   const processPaymentCompletion = async (billcode, orderId, transactionId) => {
     if (isProcessingReturn.current) return;
     isProcessingReturn.current = true;
@@ -452,9 +420,6 @@ const PaymentModal = ({
     }
   };
 
-  // ============================================================
-  // HANDLE CLOSE
-  // ============================================================
   const handleClose = () => {
     if (showWebView && paymentStatus !== 'completed') {
       Alert.alert(
@@ -478,18 +443,12 @@ const PaymentModal = ({
     }
   };
 
-  // ============================================================
-  // RENDER PAYMENT DETAILS
-  // ============================================================
   const renderPaymentDetails = () => {
     const details = getTierDetails();
+    if (!details) return null;
+
     const isGroup = details.isGroup || false;
-    
-    // Get display amount
-    let displayAmount = TOYYIBPAY_CONFIG.tierDisplayAmounts[tier] || 'RM0.00';
-    if (isGroup && details.totalAmount) {
-      displayAmount = `RM${details.totalAmount.toFixed(2)}/month`;
-    }
+    const displayAmount = `RM${details.totalAmount.toFixed(2)}/month`;
 
     return (
       <SafeAreaView style={styles.container}>
@@ -520,7 +479,7 @@ const PaymentModal = ({
                 <Text style={styles.breakdownTitle}>👥 Team Members ({memberCount}):</Text>
                 {teamMembers.slice(0, 5).map((member, index) => (
                   <Text key={index} style={styles.breakdownText}>
-                    • {member.full_name || member.email || 'Member'} {member.role === 'admin' ? '(Admin)' : ''}
+                    • {member.full_name || member.email || 'Member'} {member.role === 'leader' ? '(Leader)' : ''}
                   </Text>
                 ))}
                 {teamMembers.length > 5 && (
@@ -592,9 +551,6 @@ const PaymentModal = ({
     );
   };
 
-  // ============================================================
-  // RENDER
-  // ============================================================
   return (
     <Modal visible={visible} animationType="slide" transparent={false} onRequestClose={handleClose}>
       {showWebView ? (
@@ -653,9 +609,6 @@ const PaymentModal = ({
   );
 };
 
-// ============================================================
-// STYLES
-// ============================================================
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f4f6f8' },
   scrollContent: { paddingHorizontal: 20, paddingTop: 20, paddingBottom: 40 },

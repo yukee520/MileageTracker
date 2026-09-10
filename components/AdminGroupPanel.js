@@ -55,18 +55,53 @@ const AdminGroupPanel = ({ user, teamId, onClose, onUpdate }) => {
   const handleRequest = async (requestId, userId, action) => {
     try {
       setProcessing(true);
-      const result = await GroupService.handleJoinRequest(requestId, teamId, userId, action);
       
-      if (result.success) {
-        Alert.alert('Success', `${action === 'approved' ? 'Approved' : 'Rejected'} successfully`);
-        loadData();
-        if (onUpdate) onUpdate();
-      } else {
-        Alert.alert('Error', result.error || 'Failed to process request');
+      if (action === 'approved') {
+        // 1. Get the request details
+        const { data: request, error: requestError } = await supabase
+          .from('group_join_requests')
+          .select('team_id')
+          .eq('id', requestId)
+          .single();
+        
+        if (requestError) throw requestError;
+        
+        // 2. Add user to team
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .update({ team_id: request.team_id })
+          .eq('id', userId);
+        
+        if (profileError) throw profileError;
+        
+        // 3. DELETE the join request
+        const { error: deleteError } = await supabase
+          .from('group_join_requests')
+          .delete()
+          .eq('id', requestId);
+        
+        if (deleteError) throw deleteError;
+        
+        Alert.alert('Success', 'User approved and added to group');
+        
+      } else if (action === 'rejected') {
+        // Delete rejected request
+        const { error: deleteError } = await supabase
+          .from('group_join_requests')
+          .delete()
+          .eq('id', requestId);
+        
+        if (deleteError) throw deleteError;
+        
+        Alert.alert('Success', 'Request rejected');
       }
+      
+      loadGroupData();
+      if (onUpdate) onUpdate();
+      
     } catch (error) {
       console.error('Error handling request:', error);
-      Alert.alert('Error', 'Failed to process request');
+      Alert.alert('Error', 'Failed to process request: ' + error.message);
     } finally {
       setProcessing(false);
     }

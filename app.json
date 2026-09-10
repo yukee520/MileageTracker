@@ -19,7 +19,9 @@
       "supportsTablet": true,
       "bundleIdentifier": "com.yukee.MileageTracker",
       "infoPlist": {
-        "UIBackgroundModes": ["location"],
+        "UIBackgroundModes": [
+          "location"
+        ],
         "NSLocationWhenInUseUsageDescription": "Mileage Tracker needs access to your location to track your trips.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Mileage Tracker needs access to your location to track trips even when the app is in the background.",
         "NSLocationAlwaysUsageDescription": "Mileage Tracker needs access to your location to track trips even when the app is in the background."
@@ -64,7 +66,8 @@
           "isIosBackgroundLocationEnabled": true
         }
       ],
-      "expo-task-manager"
+      "expo-task-manager",
+      "@react-native-community/datetimepicker"
     ]
   }
 }

@@ -1,4 +1,3 @@
-// ==== App.js (full file, fixed) ====
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { StyleSheet, Text, View, TouchableOpacity, ScrollView, ActivityIndicator, Alert, TextInput, Modal, Share, Platform, Linking, AppState } from 'react-native';
 import * as Location from 'expo-location';
@@ -70,7 +69,6 @@ const DEFAULT_PURPOSES = {
 };
 
 const TIER_CONFIG = {
-  'Group Free': { limit: 30, excel: false, price: '$0/mo', group: true, db_tier: 'team_free' },
   'Personal Free': { limit: 30, excel: false, price: '$0/mo', group: false, db_tier: 'personal_free' },
   'Personal Basic': { limit: 100, excel: true, price: '$4.99/mo', group: false, db_tier: 'personal_basic' },
   'Personal Pro': { limit: 99999, excel: true, price: '$9.99/mo', group: false, db_tier: 'personal_pro' },
@@ -161,6 +159,7 @@ export default function App() {
   const [lastLocationUpdate, setLastLocationUpdate] = useState(null);
   const [isTripActive, setIsTripActive] = useState(false);
 
+  // Group Management States
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [showSearchGroup, setShowSearchGroup] = useState(false);
   const [showAdminGroupPanel, setShowAdminGroupPanel] = useState(false);
@@ -168,7 +167,6 @@ export default function App() {
   const [hasGroup, setHasGroup] = useState(false);
 
   const [pendingReferralCode, setPendingReferralCode] = useState(null);
-  const [groupsRefreshKey, setGroupsRefreshKey] = useState(0);
   const isLoadingRef = useRef(false);
   const isInitializedRef = useRef(false);
   const isFirstRender = useRef(true);
@@ -249,6 +247,7 @@ export default function App() {
     };
   }, []);
 
+  // Check for saved referral code on login
   useEffect(() => {
     const checkSavedReferral = async () => {
       if (user?.id) {
@@ -359,6 +358,7 @@ export default function App() {
     }
   };
 
+  // Restore tracking state on app start
   useEffect(() => {
     const restoreTrackingState = async () => {
       try {
@@ -392,6 +392,7 @@ export default function App() {
     restoreTrackingState();
   }, []);
 
+  // Save tracking state when it changes
   useEffect(() => {
     const saveTrackingState = async () => {
       try {
@@ -411,6 +412,7 @@ export default function App() {
     };
     saveTrackingState();
   }, [tracking, startTime, selectedPurpose, selectedCategory]);
+
 
   // ============================================================
   // LOAD TRIPS
@@ -475,8 +477,7 @@ export default function App() {
       if (error) throw error;
 
       const tierMap = {
-        'personal_free': 'Group Free',
-        'team_free': 'Group Free',
+        'personal_free': 'Personal Free',
         'personal_basic': 'Personal Basic',
         'personal_pro': 'Personal Pro',
         'team_basic': 'Group Basic',
@@ -490,7 +491,7 @@ export default function App() {
         await supabase
           .from('teams')
           .update({
-            subscription_tier: 'team_free',
+            subscription_tier: 'personal_free',
             monthly_trip_limit: 30,
             payment_status: 'expired',
             max_members: 1
@@ -507,7 +508,7 @@ export default function App() {
       }
 
       return {
-        tier: tierMap[data.subscription_tier] || 'Group Free',
+        tier: tierMap[data.subscription_tier] || 'Personal Free',
         limit: data.monthly_trip_limit || 30,
         status: data.payment_status || 'free',
         isActive: isActive,
@@ -553,14 +554,14 @@ export default function App() {
       setPendingRequestsCount(0);
       return;
     }
-
+    
     try {
       const { count, error } = await supabase
         .from('group_join_requests')
         .select('*', { count: 'exact', head: true })
         .eq('team_id', teamId)
         .eq('status', 'pending');
-
+      
       if (!error) {
         setPendingRequestsCount(count || 0);
         console.log('📨 Pending requests count:', count);
@@ -606,7 +607,7 @@ export default function App() {
 
       if (!currentProfile) {
         console.log('No profile found, creating one...');
-        console.log('ℹ️ New user - no team created');
+      console.log('ℹ️ New user - no team created');
         const { data: newProfile, error: createError } = await supabase
           .from('profiles')
           .insert({
@@ -632,12 +633,15 @@ export default function App() {
         console.log('Existing profile found:', currentProfile);
       }
 
+      // Check if user has a valid team
       const hasValidTeam = currentTeamId !== null && currentTeamId !== undefined;
 
+      // App Admin (super admin) - only specific email
       const APP_ADMIN_EMAIL = 'yukeemc@gmail.com';
       const isAppAdminCheck = user.email === APP_ADMIN_EMAIL;
       setIsAppAdmin(isAppAdminCheck);
 
+      // Group Admin (leader) - leader of their group
       const isGroupAdminCheck = hasValidTeam && currentProfile.role === 'leader';
       setIsAdmin(isGroupAdminCheck);
 
@@ -652,21 +656,34 @@ export default function App() {
       setUserId(user.id);
       setHasGroup(hasValidTeam);
 
-      const isGroupLeaderCheck = hasValidTeam && currentProfile.role === 'leader';
+      
+
+      // Fetch pending requests count for group leaders
+
+      const isGroupLeaderCheck = hasValidTeam && (currentProfile.role === 'leader' || currentProfile.role === 'admin');
 
       if (isGroupLeaderCheck && currentTeamId) {
-        await fetchPendingCount(currentTeamId, true);
-        console.log('📨 Fetched pending count for team:', currentTeamId);
-      } else {
-        setPendingRequestsCount(0);
-      }
 
+        await fetchPendingCount(currentTeamId, true);
+
+        console.log('📨 Fetched pending count for team:', currentTeamId);
+
+      } else {
+
+        setPendingRequestsCount(0);
+
+      }
+      // ============================================================
+      // LOAD SUBSCRIPTION FROM PROFILE (for personal plans)
+      // ============================================================
+      // Check if user has a personal subscription from profile
       const profileTier = currentProfile.subscription_tier || 'personal_free';
       const profileExpiry = currentProfile.subscription_expiry || null;
-
+      
       console.log('📊 Profile subscription tier:', profileTier);
       console.log('📅 Profile subscription expiry:', profileExpiry);
-
+      
+      // Map subscription tier to display name
       const tierMap = {
         'personal_free': 'Personal Free',
         'personal_basic': 'Personal Basic',
@@ -674,7 +691,8 @@ export default function App() {
         'team_basic': 'Group Basic',
         'team_pro': 'Group Pro'
       };
-
+      
+      // If user has a personal subscription (Basic or Pro), use it
       if (profileTier && profileTier !== 'personal_free') {
         console.log('📊 Using personal subscription from profile:', profileTier);
         setSubscriptionTier(tierMap[profileTier] || 'Personal Free');
@@ -682,7 +700,9 @@ export default function App() {
         setSubscriptionExpiry(profileExpiry);
       } else if (currentTeamId) {
         console.log('📊 Checking team subscription...');
+        // Team subscription will be loaded below
       } else {
+        // No subscription - Personal Free
         console.log('📊 No subscription found - Personal Free');
         setSubscriptionTier('Personal Free');
         setSubscriptionStatus('free');
@@ -698,8 +718,11 @@ export default function App() {
           setSubscriptionExpiry(status.expiresAt);
           console.log('Subscription status:', status);
         }
+
+        // Load team members
         await loadTeamMembers(currentTeamId);
       } else {
+        // No team - reset team members
         setTeamMembers([]);
         setGroupMembers([]);
         setHasGroup(false);
@@ -723,7 +746,7 @@ export default function App() {
   }, [loadTrips, checkSubscriptionStatus]);
 
   // ============================================================
-  // AUTH EFFECT (FIXED: now properly closed)
+  // AUTH EFFECT
   // ============================================================
   useEffect(() => {
     let isMounted = true;
@@ -760,6 +783,51 @@ export default function App() {
 
     initializeApp();
 
+    
+  // ============================================================
+  // REAL-TIME SUBSCRIPTION FOR PENDING REQUESTS COUNT
+  // ============================================================
+  useEffect(() => {
+    if (!user?.id || !teamId || !isAdmin) return;
+    
+    console.log('📡 App.js: Setting up pending requests subscription...');
+    
+    const channel = supabase
+      .channel('pending_requests_count_' + teamId)
+      .on('postgres_changes', {
+        event: '*',
+        schema: 'public',
+        table: 'group_join_requests',
+        filter: 'team_id=eq.' + teamId
+      }, async (payload) => {
+        console.log('🔄 Pending request change detected:', payload.eventType);
+        // Refetch the count
+        const { count } = await supabase
+          .from('group_join_requests')
+          .select('*', { count: 'exact', head: true })
+          .eq('team_id', teamId)
+          .eq('status', 'pending');
+        setPendingRequestsCount(count || 0);
+        console.log('📨 Updated pending count:', count);
+        
+        // Show notification for new requests
+        if (payload.eventType === 'INSERT') {
+          Alert.alert(
+            '📨 New Join Request!',
+            'Someone wants to join your group.',
+            [{ text: 'OK' }]
+          );
+        }
+      })
+      .subscribe();
+    
+    return () => {
+      console.log('📡 App.js: Unsubscribing from pending requests...');
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id, teamId, isAdmin]);
+
+  useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log('Auth event:', event);
@@ -786,57 +854,11 @@ export default function App() {
     );
 
     return () => {
-      console.log('Cleaning up auth effect');
+      console.log('Cleaning up');
       isMounted = false;
       subscription?.unsubscribe();
     };
   }, [loadUserData]);
-
-  // ============================================================
-  // REAL-TIME SUBSCRIPTION FOR PENDING REQUESTS COUNT
-  // ============================================================
-  useEffect(() => {
-    console.log("📡 Effect running. user:", user?.id, "teamId:", teamId, "isAdmin:", isAdmin);
-    if (!user?.id || !teamId || !isAdmin) {
-      console.log("📡 Skipping subscription setup");
-      return;
-    }
-
-    console.log('📡 App.js: Setting up pending requests subscription...');
-
-    const channel = supabase
-      .channel('pending_requests_count_' + teamId)
-      .on('postgres_changes', {
-        event: '*',
-        schema: 'public',
-        table: 'group_join_requests',
-        filter: 'team_id=eq.' + teamId
-      }, async (payload) => {
-        console.log('🔄 Pending request change detected:', payload.eventType);
-        const { count } = await supabase
-          .from('group_join_requests')
-          .select('*', { count: 'exact', head: true })
-          .eq('team_id', teamId)
-          .eq('status', 'pending');
-        setPendingRequestsCount(count || 0);
-        setGroupsRefreshKey(k => k + 1);
-        console.log('📨 Updated pending count:', count);
-
-        if (payload.eventType === 'INSERT') {
-          Alert.alert(
-            '📨 New Join Request!',
-            'Someone wants to join your group.',
-            [{ text: 'OK' }]
-          );
-        }
-      })
-      .subscribe((status) => { console.log("📡 Subscription status:", status); });
-
-    return () => {
-      console.log('📡 App.js: Unsubscribing from pending requests...');
-      supabase.removeChannel(channel);
-    };
-  }, [user?.id, teamId, isAdmin]);
 
   // ============================================================
   // COMPUTED VALUES
@@ -907,6 +929,7 @@ export default function App() {
     const isCurrentGroup = groupTiers.includes(subscriptionTier);
     const isNewGroup = groupTiers.includes(newTier);
 
+    // If downgrading from group to personal, confirm with user
     if (isCurrentGroup && !isNewGroup) {
       Alert.alert(
         '⚠️ Warning: Leaving Group',
@@ -934,6 +957,7 @@ export default function App() {
       return;
     }
 
+    // Group plans are handled in AdminGroupPanel
     if (newTier === 'Group Basic' || newTier === 'Group Pro') {
       Alert.alert(
         'Group Plan',
@@ -980,10 +1004,12 @@ export default function App() {
         return;
       }
 
+      // Check if this is a downgrade from group to personal
       const isGroupToPersonal =
         (subscriptionTier === 'Group Basic' || subscriptionTier === 'Group Pro') &&
         (newTier === 'Personal Free' || newTier === 'Personal Basic' || newTier === 'Personal Pro');
 
+      // Update team subscription
       const { error } = await supabase
         .from('teams')
         .update({
@@ -995,7 +1021,9 @@ export default function App() {
 
       if (error) throw error;
 
+      // If downgrading from group to personal, remove user from group
       if (isGroupToPersonal) {
+        // Update user's profile to leave the group
         const { error: profileError } = await supabase
           .from('profiles')
           .update({
@@ -1006,6 +1034,7 @@ export default function App() {
 
         if (profileError) throw profileError;
 
+        // Also remove all other members from the group
         const { data: members, error: membersError } = await supabase
           .from('profiles')
           .select('id')
@@ -1014,6 +1043,7 @@ export default function App() {
 
         if (membersError) throw membersError;
 
+        // For each member, remove them from the group
         for (const member of members || []) {
           await supabase
             .from('profiles')
@@ -1024,6 +1054,7 @@ export default function App() {
             .eq('id', member.id);
         }
 
+        // Reset state
         setTeamId(null);
         setIsAdmin(false);
         setHasGroup(false);
@@ -1070,7 +1101,7 @@ export default function App() {
   };
 
   // ============================================================
-  // AUTH HANDLERS
+  // AUTH HANDLERS - WITH DUPLICATE EMAIL CHECK
   // ============================================================
   const handleAuth = async () => {
     if (!loginEmail || !loginPassword) {
@@ -1078,6 +1109,7 @@ export default function App() {
       return;
     }
 
+    // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(loginEmail)) {
       Alert.alert('Error', 'Please enter a valid email address');
@@ -1086,6 +1118,7 @@ export default function App() {
 
     setIsLoading(true);
     try {
+      // For sign up, check if email already exists
       if (!isLogin) {
         const { data: existingUser, error: checkError } = await supabase
           .from('profiles')
@@ -1131,6 +1164,7 @@ export default function App() {
       if (result.error) {
         console.error('Auth error:', result.error);
 
+        // Handle specific error messages
         if (result.error.message.includes('Email not confirmed')) {
           Alert.alert(
             'Email Not Confirmed',
@@ -1218,7 +1252,7 @@ export default function App() {
           .from('teams')
           .insert({
             name: teamName,
-            subscription_tier: 'team_free',
+            subscription_tier: 'personal_free',
             monthly_trip_limit: 30,
             max_members: 1
           })
@@ -1570,37 +1604,19 @@ export default function App() {
   };
 
   const calculateDistance = (coords) => {
-  if (!coords || coords.length < 2) return '0.00';
-  let totalMeters = 0;
-  let prev = coords[0];
-  for (let i = 1; i < coords.length; i++) {
-    const cur = coords[i];
-
-    if (typeof cur.accuracy === 'number' && cur.accuracy > 30) continue;
-
-    const R = 6371e3;
-    const lat1 = prev.latitude, lon1 = prev.longitude;
-    const lat2 = cur.latitude, lon2 = cur.longitude;
-    const φ1 = lat1 * Math.PI / 180, φ2 = lat2 * Math.PI / 180;
-    const Δφ = (lat2 - lat1) * Math.PI / 180;
-    const Δλ = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
-    const hopMeters = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-
-    if (hopMeters < 10) continue;
-
-    const t1 = prev.timestamp || 0;
-    const t2 = cur.timestamp || 0;
-    if (t1 && t2) {
-      const dtSec = (t2 - t1) / 1000;
-      if (dtSec > 0 && hopMeters / dtSec > 55) continue;
+    let totalMeters = 0;
+    for (let i = 0; i < coords.length - 1; i++) {
+      const lat1 = coords[i].latitude, lon1 = coords[i].longitude;
+      const lat2 = coords[i+1].latitude, lon2 = coords[i+1].longitude;
+      const R = 6371e3;
+      const φ1 = lat1 * Math.PI / 180, φ2 = lat2 * Math.PI / 180;
+      const Δφ = (lat2 - lat1) * Math.PI / 180;
+      const Δλ = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
+      totalMeters += R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     }
-
-    totalMeters += hopMeters;
-    prev = cur;
-  }
-  return (totalMeters / 1000).toFixed(2);
-};
+    return (totalMeters / 1000).toFixed(2);
+  };
 
   const handleInitiateNewTrip = () => {
     if (isTripActive || isTrackingRef.current) {
@@ -1948,6 +1964,7 @@ export default function App() {
           style: 'destructive',
           onPress: async () => {
             try {
+              // Update user's profile
               const { error } = await supabase
                 .from('profiles')
                 .update({ team_id: null, role: 'member' })
@@ -2150,6 +2167,7 @@ export default function App() {
     }
   };
 
+  
   // ============================================================
   // FORCE REFRESH USER DATA
   // ============================================================
@@ -2159,7 +2177,7 @@ export default function App() {
       loadUserData(user);
     }
   };
-
+  
   const handleExportExcel = () => {
     if (!currentConfig.excel) {
       Alert.alert(
@@ -2233,13 +2251,17 @@ export default function App() {
     );
   }
 
+  // ============================================================
+  // MAIN APP RENDER
+  // ============================================================
   return (
     <View style={styles.container}>
       <View style={{ flex: 1 }}>
+        {/* FLOATING END TRIP BUTTON */}
         {isTripActive && (
           <View style={styles.floatingEndTripContainer}>
-            <TouchableOpacity
-              style={styles.floatingEndTripBtn}
+            <TouchableOpacity 
+              style={styles.floatingEndTripBtn} 
               onPress={endTrip}
               activeOpacity={0.8}
             >
@@ -2249,6 +2271,7 @@ export default function App() {
           </View>
         )}
 
+        {/* HOME TAB */}
         {activeTab === 'home' && (
           <ScrollView style={styles.content}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2294,6 +2317,7 @@ export default function App() {
           </ScrollView>
         )}
 
+        {/* DASHBOARD TAB */}
         {activeTab === 'dashboard' && (
           <ScrollView style={styles.content}>
             <Text style={styles.headerTitle}>Dashboard & Analytics</Text>
@@ -2325,6 +2349,58 @@ export default function App() {
               </View>
             </View>
 
+            {currentConfig.group && teamMembers.length > 0 ? (
+              <View style={styles.groupDashboardSection}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <Text style={styles.sectionHeaderTitle}>👑 Group Admin Overview</Text>
+                </View>
+
+                <View style={[styles.statsCard, { backgroundColor: '#eef6ff' }]}>
+                  <View style={styles.statItem}>
+                    <Text style={[styles.statVal, { color: '#28a745' }]}>{teamStats.totalTrips}</Text>
+                    <Text style={styles.statLbl}>Team Total Trips</Text>
+                  </View>
+                  <View style={styles.statDivider} />
+                  <View style={styles.statItem}>
+                    <Text style={[styles.statVal, { color: '#28a745' }]}>{teamStats.totalDistance} km</Text>
+                    <Text style={styles.statLbl}>Team Distance</Text>
+                  </View>
+                </View>
+
+                <Text style={styles.subSectionTitle}>Team Members Activity</Text>
+                {teamMembers.map((member) => {
+                  const stats = getMemberStats(member.name);
+                  return (
+                    <TouchableOpacity
+                      key={member.id}
+                      style={styles.teamMemberRow}
+                      onPress={() => viewMemberTripDetails(member.name)}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.memberName}>
+                          {member.name} {member.role === 'admin' && '(Admin)'} <Text style={styles.memberRole}>({member.role})</Text>
+                        </Text>
+                        <Text style={styles.memberStats}>{stats.totalTrips} trips completed • {stats.totalDistance} km</Text>
+                      </View>
+                      <Text style={styles.memberViewBtn}>View Trips →</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+
+                <TouchableOpacity
+                  style={styles.viewAllTripsBtn}
+                  onPress={() => viewMemberTripDetails('ALL')}
+                >
+                  <Text style={styles.viewAllTripsBtnText}>📋 View All Team Trips ({getMemberTrips('ALL').length})</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity style={styles.groupUpgradeBanner} onPress={() => setShowSearchGroup(true)}>
+                <Text style={styles.groupUpgradeTitle}>👥 Join or Create a Group</Text>
+                <Text style={styles.groupUpgradeSub}>Join an existing group or create your own to collaborate with team members.</Text>
+              </TouchableOpacity>
+            )}
+
             <TouchableOpacity
               style={[styles.exportBtn, isExporting && { backgroundColor: '#6c757d' }]}
               onPress={handleExportExcel}
@@ -2337,6 +2413,7 @@ export default function App() {
           </ScrollView>
         )}
 
+        {/* HISTORY TAB */}
         {activeTab === 'history' && (
           <ScrollView style={styles.content}>
             <Text style={styles.headerTitle}>Trip Logs</Text>
@@ -2371,16 +2448,16 @@ export default function App() {
           </ScrollView>
         )}
 
+        
+        {/* GROUPS TAB */}
         {activeTab === 'groups' && (
-          <GroupsScreen
-            refreshKey={groupsRefreshKey}
-            user={user}
-            onRefresh={forceRefreshUserData}
+          <GroupsScreen 
+            user={user} onRefresh={forceRefreshUserData} 
+            onRefresh={() => loadUserData(user)}
             pendingRequestsCount={pendingRequestsCount}
             onPendingUpdate={(count) => setPendingRequestsCount(count)}
           />
-        )}
-
+        )}{/* PROFILE TAB */}
         {activeTab === 'profile' && (
           <ScrollView style={styles.content}>
             <Text style={styles.headerTitle}>User Account</Text>
@@ -2451,6 +2528,7 @@ export default function App() {
           </ScrollView>
         )}
 
+        {/* PURPOSE SELECT TAB */}
         {activeTab === 'purpose_select' && (
           <ScrollView style={styles.content}>
             <View style={styles.screenHeader}>
@@ -2476,6 +2554,7 @@ export default function App() {
           </ScrollView>
         )}
 
+        {/* TRACKING TAB */}
         {activeTab === 'tracking' && (
           <ScrollView style={styles.content}>
             <Text style={styles.header}>Trip Tracking</Text>
@@ -2575,6 +2654,7 @@ export default function App() {
         )}
       </View>
 
+      {/* Bottom Tab Bar */}
       <View style={styles.bottomTabBar}>
         <TouchableOpacity style={styles.bottomTabItem} onPress={() => setActiveTab('home')}>
           <Text style={[styles.bottomTabIcon, activeTab === 'home' && styles.bottomTabIconActive]}>🏠</Text>
@@ -2604,6 +2684,11 @@ export default function App() {
         </TouchableOpacity>
       </View>
 
+      {/* ============================================================ */}
+      {/* MODALS */}
+      {/* ============================================================ */}
+
+      {/* Create Group Screen */}
       {showCreateGroup && (
         <CreateGroupScreen
           user={user}
@@ -2618,6 +2703,7 @@ export default function App() {
         />
       )}
 
+      {/* Search Group Screen */}
       {showSearchGroup && (
         <GroupSearchScreen
           user={user}
@@ -2632,6 +2718,7 @@ export default function App() {
         />
       )}
 
+      {/* Admin Group Panel */}
       {showAdminGroupPanel && (
         <AdminGroupPanel
           user={user}
@@ -2646,14 +2733,15 @@ export default function App() {
         />
       )}
 
+      {/* Admin Panel Modal */}
       {showAdminPanel && (
         <AdminPanel
           user={user}
-          onClose={() => setShowAdminPanel(false)}
-          onRefresh={forceRefreshUserData}
+          onClose={() => setShowAdminPanel(false)} onRefresh={forceRefreshUserData}
         />
       )}
 
+      {/* Referral Screen Modal */}
       {showReferralScreen && (
         <ReferralScreen
           user={user}
@@ -2661,6 +2749,7 @@ export default function App() {
         />
       )}
 
+      {/* Profile Edit Modal */}
       <Modal visible={showProfileEdit} animationType="slide" transparent onRequestClose={() => setShowProfileEdit(false)}>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -2683,6 +2772,7 @@ export default function App() {
         </View>
       </Modal>
 
+      {/* Purpose Manager Modal */}
       <Modal visible={showPurposeManager} animationType="slide" transparent={false} onRequestClose={() => setShowPurposeManager(false)}>
         <View style={[styles.container, { paddingHorizontal: 20 }]}>
           <View style={styles.screenHeader}>
@@ -2728,6 +2818,7 @@ export default function App() {
         </View>
       </Modal>
 
+      {/* Member Trip Details Modal */}
       <Modal visible={showMemberTripDetails} animationType="slide" transparent={false} onRequestClose={() => setShowMemberTripDetails(false)}>
         <View style={[styles.container, { paddingHorizontal: 20 }]}>
           <View style={styles.screenHeader}>
@@ -2754,6 +2845,7 @@ export default function App() {
         </View>
       </Modal>
 
+      {/* Subscription Modal - Personal Plans Only */}
       <Modal visible={showSubscriptionModal} animationType="slide" transparent={false} onRequestClose={() => setShowSubscriptionModal(false)}>
         <View style={[styles.container, { paddingHorizontal: 20 }]}>
           <View style={styles.screenHeader}>
@@ -2762,6 +2854,7 @@ export default function App() {
           </View>
           <ScrollView style={{ flex: 1 }}>
             {Object.keys(TIER_CONFIG).map((tierKey) => {
+              // Only show personal plans, not group plans
               if (tierKey === 'Group Basic' || tierKey === 'Group Pro') return null;
 
               const cfg = TIER_CONFIG[tierKey];
@@ -2797,6 +2890,7 @@ export default function App() {
         </View>
       </Modal>
 
+      {/* Edit Trip Modal */}
       <Modal visible={editingTrip !== null} animationType="slide" transparent onRequestClose={() => setEditingTrip(null)}>
         <View style={styles.modalOverlay}>
           <ScrollView style={styles.modalContent} showsVerticalScrollIndicator={false}>
@@ -2832,6 +2926,7 @@ export default function App() {
         </View>
       </Modal>
 
+      {/* Year Picker Modal */}
       <Modal visible={showYearPicker} transparent animationType="fade" onRequestClose={() => setShowYearPicker(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowYearPicker(false)}>
           <View style={styles.pickerModalContent}>
@@ -2842,6 +2937,7 @@ export default function App() {
         </TouchableOpacity>
       </Modal>
 
+      {/* Month Picker Modal */}
       <Modal visible={showMonthPicker} transparent animationType="fade" onRequestClose={() => setShowMonthPicker(false)}>
         <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowMonthPicker(false)}>
           <View style={styles.pickerModalContent}>
@@ -2854,6 +2950,7 @@ export default function App() {
         </TouchableOpacity>
       </Modal>
 
+      {/* Payment Modal */}
       <PaymentModal
         visible={showPaymentModal}
         onClose={() => {
@@ -2875,6 +2972,9 @@ export default function App() {
   );
 }
 
+// ============================================================
+// STYLES
+// ============================================================
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f4f6f8', paddingTop: 40 },
   content: { flex: 1, paddingHorizontal: 20, marginBottom: 10 },
@@ -3058,7 +3158,7 @@ const styles = StyleSheet.create({
   editCategoryActive: { backgroundColor: '#007AFF' },
   editCategoryText: { fontSize: 14, fontWeight: '600', color: '#555' },
   editCategoryTextActive: { color: '#fff' },
-
+  
   badgeContainer: {
     position: 'absolute',
     top: -4,
@@ -3077,3 +3177,4 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
 });
+

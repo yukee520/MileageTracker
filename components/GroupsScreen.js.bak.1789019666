@@ -10,6 +10,7 @@ import {
   RefreshControl,
   Modal,
   Share,
+  Vibration
 } from 'react-native';
 import { createClient } from '@supabase/supabase-js';
 import GroupService from '../services/GroupService';
@@ -36,6 +37,7 @@ function arrayBufferToBase64(buffer) {
 }
 
 const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPendingUpdate }) => {
+  // Pending count is managed in App.js for the badge
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [groupInfo, setGroupInfo] = useState(null);
@@ -52,11 +54,34 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
   const [processing, setProcessing] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedTier, setSelectedTier] = useState(null);
-  const [activeSection, setActiveSection] = useState('requests');
-  const [showTransferModal, setShowTransferModal] = useState(false);
 
   const isMounted = useRef(true);
   const isLoadingRef = useRef(false);
+
+  // Simple useEffect without navigation listener
+  useEffect(() => {
+    isMounted.current = true;
+    loadGroupData();
+    
+    return () => {
+      isMounted.current = false;
+    };
+
+  // Re-fetch when parent signals an update (e.g. real-time pending request count changed)
+  useEffect(() => {
+    if (refreshKey === undefined) return;
+    if (!isMounted.current) return;
+    console.log("🔄 GroupsScreen refreshing due to refreshKey:", refreshKey);
+    loadGroupData();
+  }, [refreshKey]);
+  }, [])
+
+
+  // ============================================================
+  // REAL-TIME REFRESH - Refresh when App state changes
+  // ============================================================
+  // Note: Pending count subscription is handled in App.js
+  // This component just refreshes when notified by App.js;
 
   const loadGroupData = async () => {
     if (isLoadingRef.current) {
@@ -88,10 +113,10 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
       }
 
       const hasValidTeam = profile?.team_id !== null && profile?.team_id !== undefined && profile?.team_id !== '';
-      const isLeader = hasValidTeam && profile?.role === 'leader';
 
       if (isMounted.current) {
         setHasGroup(hasValidTeam);
+        const isLeader = hasValidTeam && (profile?.role === 'leader' || profile?.role === 'admin');
         setIsGroupLeader(isLeader);
         console.log('👑 Is Group Leader:', isLeader);
       }
@@ -107,20 +132,22 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
           setGroupMembers(membersResult.data || []);
         }
 
-        if (isLeader && isMounted.current) {
+        if (isGroupLeader && isMounted.current) {
           const requestsResult = await GroupService.getPendingRequests(profile.team_id);
           if (requestsResult.success && isMounted.current) {
             setPendingRequests(requestsResult.data || []);
             if (onPendingUpdate) onPendingUpdate(requestsResult.data?.length || 0);
             console.log('📨 Pending requests:', requestsResult.data?.length || 0);
           }
-        } else if (isMounted.current) {
+        } else {
           setPendingRequests([]);
+            // setPendingCount managed by App.js
         }
       } else if (isMounted.current) {
         setGroupInfo(null);
         setGroupMembers([]);
         setPendingRequests([]);
+            // setPendingCount managed by App.js
       }
     } catch (error) {
       console.error('❌ Error in loadGroupData:', error);
@@ -133,24 +160,6 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
     }
   };
 
-  useEffect(() => {
-    isMounted.current = true;
-    loadGroupData();
-
-    return () => {
-      isMounted.current = false;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (refreshKey === undefined) return;
-    if (!isMounted.current) return;
-    console.log('🔄 GroupsScreen refreshing due to refreshKey:', refreshKey);
-    loadGroupData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refreshKey]);
-
   const handleRefresh = () => {
     console.log('🔄 Pull to refresh');
     setRefreshing(true);
@@ -158,60 +167,52 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
   };
 
   // ============================================================
-  // PAID-PLAN CHECK (used to block dismissal)
+  // APPROVE/REJECT JOIN REQUEST
   // ============================================================
-  const hasActivePaidGroupPlan = () => {
-    if (!groupInfo) return false;
-    const tier = groupInfo.subscription_tier;
-    const paidTiers = ['team_basic', 'team_pro'];
-    if (!paidTiers.includes(tier)) return false;
-    if (groupInfo.payment_status !== 'active') return false;
-    const expiry = groupInfo.subscription_end_date ? new Date(groupInfo.subscription_end_date) : null;
-    if (expiry && expiry < new Date()) return false;
-    return true;
-  };
-
   const handleRequest = async (requestId, userId, action) => {
     try {
       setProcessing(true);
-
+      
       if (action === 'approved') {
         const { data: request, error: requestError } = await supabase
           .from('group_join_requests')
           .select('team_id')
           .eq('id', requestId)
           .single();
-
+        
         if (requestError) throw requestError;
-
+        
         const { error: profileError } = await supabase
           .from('profiles')
           .update({ team_id: request.team_id })
           .eq('id', userId);
-
+        
         if (profileError) throw profileError;
-
+        
         const { error: deleteError } = await supabase
           .from('group_join_requests')
           .delete()
           .eq('id', requestId);
-
+        
         if (deleteError) throw deleteError;
-
+        
         Alert.alert('Success', 'User approved and added to group');
+        
       } else if (action === 'rejected') {
         const { error: deleteError } = await supabase
           .from('group_join_requests')
           .delete()
           .eq('id', requestId);
-
+        
         if (deleteError) throw deleteError;
-
+        
         Alert.alert('Success', 'Request rejected');
       }
-
+      
       loadGroupData();
+      // Also trigger parent refresh
       if (onRefresh) onRefresh();
+      
     } catch (error) {
       console.error('Error handling request:', error);
       Alert.alert('Error', 'Failed to process request: ' + error.message);
@@ -220,6 +221,9 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
     }
   };
 
+  // ============================================================
+  // VIEW MEMBER TRIPS
+  // ============================================================
   const handleViewMemberTrips = async (member) => {
     try {
       setLoading(true);
@@ -242,6 +246,9 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
     }
   };
 
+  // ============================================================
+  // EXPORT TEAM REPORT
+  // ============================================================
   const handleExportTeamReport = async () => {
     try {
       setExporting(true);
@@ -363,18 +370,10 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
     }
   };
 
+  // ============================================================
+  // DISMISS GROUP
+  // ============================================================
   const handleDismissGroup = () => {
-    if (hasActivePaidGroupPlan()) {
-      const expiry = groupInfo.subscription_end_date
-        ? new Date(groupInfo.subscription_end_date).toLocaleDateString()
-        : 'unknown date';
-      Alert.alert(
-        'Cannot Dismiss Group',
-        `This group has an active ${groupInfo.subscription_tier === 'team_pro' ? 'Group Pro' : 'Group Basic'} subscription until ${expiry}.\n\nYou can dismiss the group after the subscription expires.`
-      );
-      return;
-    }
-
     Alert.alert(
       'Dismiss Group',
       '⚠️ Warning: This will permanently delete the group and remove all members.\n\nAll join requests will also be deleted.',
@@ -387,15 +386,15 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
             try {
               setProcessing(true);
               const teamId = groupInfo?.id;
-
+              
               if (!teamId) {
                 Alert.alert('Error', 'No group found to dismiss');
                 setProcessing(false);
                 return;
               }
-
+              
               console.log('🗑️ Dismissing group:', teamId);
-
+              
               const { data: members, error: membersError } = await supabase
                 .from('profiles')
                 .select('id')
@@ -426,11 +425,13 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
               setGroupInfo(null);
               setGroupMembers([]);
               setPendingRequests([]);
+            // setPendingCount managed by App.js
               setIsGroupLeader(false);
-
+              
               Alert.alert('Success', 'Group has been dismissed successfully.');
               loadGroupData();
               if (onRefresh) onRefresh();
+              
             } catch (error) {
               console.error('❌ Error dismissing group:', error);
               Alert.alert('Error', 'Failed to dismiss group: ' + error.message);
@@ -444,54 +445,8 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
   };
 
   // ============================================================
-  // TRANSFER LEADERSHIP
+  // LEAVE GROUP
   // ============================================================
-  const openTransferModal = () => {
-    const others = groupMembers.filter(m => m.id !== user.id);
-    if (others.length === 0) {
-      Alert.alert('No Members', 'You need at least one other member to transfer leadership.');
-      return;
-    }
-    setShowTransferModal(true);
-  };
-
-  const handleTransferLeadership = (targetMember) => {
-    Alert.alert(
-      'Transfer Leadership',
-      `Transfer leadership to ${targetMember.full_name || targetMember.email}?\n\nYou will become a regular member and lose leader privileges.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Transfer',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setProcessing(true);
-              setShowTransferModal(false);
-
-              const result = await GroupService.transferAdmin(
-                groupInfo?.id,
-                user.id,
-                targetMember.id
-              );
-
-              if (!result.success) throw new Error(result.error || 'Transfer failed');
-
-              Alert.alert('Success', `${targetMember.full_name || targetMember.email} is now the group leader.`);
-              await loadGroupData();
-              if (onRefresh) onRefresh();
-            } catch (error) {
-              console.error('Error transferring leadership:', error);
-              Alert.alert('Error', 'Failed to transfer leadership: ' + error.message);
-            } finally {
-              setProcessing(false);
-            }
-          }
-        }
-      ]
-    );
-  };
-
   const handleLeaveGroup = () => {
     Alert.alert(
       'Leave Group',
@@ -514,6 +469,7 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
               setGroupInfo(null);
               setGroupMembers([]);
               setPendingRequests([]);
+            // setPendingCount managed by App.js
               setIsGroupLeader(false);
               Alert.alert('Success', 'You have left the group.');
               loadGroupData();
@@ -530,6 +486,9 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
     );
   };
 
+  // ============================================================
+  // PAYMENT
+  // ============================================================
   const handlePayment = (tier) => {
     setSelectedTier(tier);
     setShowPaymentModal(true);
@@ -544,19 +503,25 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
   };
 
   const getLeader = () => {
-    const leader = groupMembers.find(m => m.role === 'leader');
+    const leader = groupMembers.find(m => m.role === 'leader' || m.role === 'admin');
     return leader?.full_name || leader?.email || 'Unknown';
   };
 
   const getMemberCount = () => groupMembers.length || 1;
-
-  const getSubscriptionStatus = () => {
-    if (!groupInfo) return 'Group Free';
-    const tier = groupInfo.subscription_tier;
-    if (tier === 'team_basic') return 'Group Basic';
-    if (tier === 'team_pro') return 'Group Pro';
-    return 'Group Free';
+  
+  // ============================================================
+  // EXPORT PENDING COUNT FOR BADGE
+  // ============================================================
+  // This function is called by the parent to get the pending count
+  const getPendingCount = () => {
+    return pendingRequests.length;
   };
+  
+  // ============================================================
+  // PENDING REQUEST COUNT
+  // ============================================================
+  // Duplicate removed
+  const getSubscriptionStatus = () => groupInfo?.subscription_tier || 'Personal Free';
 
   if (loading) {
     return (
@@ -631,33 +596,12 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
     >
       <View style={styles.groupHeader}>
         <View style={styles.groupHeaderRow}>
-          <Text style={styles.groupName} numberOfLines={1}>
-            {groupInfo?.name || 'My Group'}
-          </Text>
-          <View style={styles.headerActions}>
-            {isGroupLeader && (
-              <View style={styles.leaderBadge}>
-                <Text style={styles.leaderBadgeText}>👑</Text>
-              </View>
-            )}
-            {isGroupLeader ? (
-              <TouchableOpacity
-                style={styles.iconDangerBtn}
-                onPress={handleDismissGroup}
-                disabled={processing}
-              >
-                <Text style={styles.iconDangerText}>🗑️</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                style={styles.iconDangerBtn}
-                onPress={handleLeaveGroup}
-                disabled={processing}
-              >
-                <Text style={styles.iconDangerText}>🚪</Text>
-              </TouchableOpacity>
-            )}
-          </View>
+          <Text style={styles.groupName}>{groupInfo?.name || 'My Group'}</Text>
+          {isGroupLeader && (
+            <View style={styles.leaderBadge}>
+              <Text style={styles.leaderBadgeText}>👑 Leader</Text>
+            </View>
+          )}
         </View>
         {groupInfo?.description ? (
           <Text style={styles.groupDescription}>{groupInfo.description}</Text>
@@ -667,142 +611,100 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
         <Text style={styles.groupPlan}>📊 Plan: {getSubscriptionStatus()}</Text>
       </View>
 
-      <View style={styles.tabBar}>
-        {isGroupLeader && (
-          <TouchableOpacity
-            style={[styles.tabBtn, activeSection === 'requests' && styles.tabBtnActive]}
-            onPress={() => setActiveSection('requests')}
-          >
-            <Text style={[styles.tabBtnText, activeSection === 'requests' && styles.tabBtnTextActive]}>
-              📨 Requests{pendingRequests.length > 0 ? ` (${pendingRequests.length})` : ''}
-            </Text>
-          </TouchableOpacity>
-        )}
-        <TouchableOpacity
-          style={[styles.tabBtn, activeSection === 'members' && styles.tabBtnActive]}
-          onPress={() => setActiveSection('members')}
-        >
-          <Text style={[styles.tabBtnText, activeSection === 'members' && styles.tabBtnTextActive]}>
-            👥 Members ({groupMembers.length})
-          </Text>
-        </TouchableOpacity>
-        {isGroupLeader && (
-          <TouchableOpacity
-            style={[styles.tabBtn, activeSection === 'subscription' && styles.tabBtnActive]}
-            onPress={() => setActiveSection('subscription')}
-          >
-            <Text style={[styles.tabBtnText, activeSection === 'subscription' && styles.tabBtnTextActive]}>
-              💳 Plan
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      {isGroupLeader && activeSection === 'requests' && (
+      {isGroupLeader && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>📨 Pending Requests ({pendingRequests.length})</Text>
-          {pendingRequests.length === 0 ? (
-            <Text style={{ color: '#888', paddingVertical: 8 }}>No pending requests.</Text>
+         {pendingRequests.length === 0 ? (
+          <Text style={{ color: '#888', paddingVertical: 8 }}>No pending requests.</Text>
           ) : (
-            pendingRequests.map((request) => (
-              <View key={request.id} style={styles.requestCard}>
-                <View style={styles.requestInfo}>
-                  <Text style={styles.requestName}>
-                    {request.profiles?.full_name || 'Unknown User'}
-                  </Text>
-                  <Text style={styles.requestEmail}>{request.profiles?.email || ''}</Text>
-                  {request.message && (
-                    <Text style={styles.requestMessage}>"{request.message}"</Text>
-                  )}
-                </View>
-                <View style={styles.requestActions}>
-                  <TouchableOpacity
-                    style={[styles.actionBtn, styles.approveBtn]}
-                    onPress={() => handleRequest(request.id, request.user_id, 'approved')}
-                    disabled={processing}
-                  >
-                    <Text style={styles.actionBtnText}>✅</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[styles.actionBtn, styles.rejectBtn]}
-                    onPress={() => handleRequest(request.id, request.user_id, 'rejected')}
-                    disabled={processing}
-                  >
-                    <Text style={styles.actionBtnText}>❌</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            ))
-          )}
-        </View>
-      )}
-
-      {activeSection === 'members' && (
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>👥 Members ({groupMembers.length})</Text>
-          {groupMembers.map((member) => {
-            const isMemberLeader = member.role === 'leader';
-            return (
-              <TouchableOpacity
-                key={member.id}
-                style={styles.memberCard}
-                onPress={() => {
-                  if (isGroupLeader && member.id !== user.id) {
-                    handleViewMemberTrips(member);
-                  } else if (member.id === user.id) {
-                    Alert.alert('Your Trips', 'View your trips in the History tab.');
-                  } else {
-                    Alert.alert('Member', 'Only group leaders can view member trips.');
-                  }
-                }}
-                disabled={!isGroupLeader || member.id === user.id}
-              >
-                <View style={styles.memberInfo}>
-                  <Text style={styles.memberName}>
-                    {member.full_name || 'Unknown'}
-                    {member.id === user.id && ' (You)'}
-                  </Text>
-                  <Text style={[styles.memberRole, isMemberLeader && styles.leaderRoleText]}>
-                    {isMemberLeader ? '👑 Leader' : 'Member'}
-                  </Text>
-                </View>
-                <View style={styles.memberRight}>
-                  <Text style={styles.memberEmail}>{member.email}</Text>
-                  {isGroupLeader && member.id !== user.id && (
-                    <Text style={styles.viewTripsIcon}>📋</Text>
-                  )}
-                </View>
-              </TouchableOpacity>
-            );
-          })}
-
-          {isGroupLeader && (
-            <>
-              <TouchableOpacity
-                style={[styles.reportButton, { marginTop: 12 }]}
-                onPress={handleExportTeamReport}
-                disabled={exporting}
-              >
-                <Text style={styles.reportButtonText}>
-                  {exporting ? '⏳ Generating...' : '📋 Export Team Trip Report'}
+           {pendingRequests.map((request) => (
+            <View key={request.id} style={styles.requestCard}>
+              <View style={styles.requestInfo}>
+                <Text style={styles.requestName}>
+                  {request.profiles?.full_name || 'Unknown User'}
                 </Text>
-                <Text style={styles.reportButtonSub}>Export all team members' trips to Excel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.transferBtn, { marginTop: 10 }]}
-                onPress={openTransferModal}
-                disabled={processing}
-              >
-                <Text style={styles.transferBtnText}>👑 Transfer Leadership</Text>
-                <Text style={styles.transferBtnSub}>Pass the leader role to another member</Text>
-              </TouchableOpacity>
-            </>
-          )}
+                <Text style={styles.requestEmail}>{request.profiles?.email || ''}</Text>
+                {request.message && (
+                  <Text style={styles.requestMessage}>"{request.message}"</Text>
+                )}
+              </View>
+              <View style={styles.requestActions}>
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.approveBtn]}
+                  onPress={() => handleRequest(request.id, request.user_id, 'approved')}
+                  disabled={processing}
+                >
+                  <Text style={styles.actionBtnText}>✅ Approve</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.actionBtn, styles.rejectBtn]}
+                  onPress={() => handleRequest(request.id, request.user_id, 'rejected')}
+                  disabled={processing}
+                >
+                  <Text style={styles.actionBtnText}>❌ Reject</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ))}
         </View>
       )}
 
-      {isGroupLeader && activeSection === 'subscription' && (
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>👥 Members ({groupMembers.length})</Text>
+        {groupMembers.map((member) => {
+          const isLeader = member.role === 'leader' || member.role === 'admin';
+          return (
+            <TouchableOpacity
+              key={member.id}
+              style={styles.memberCard}
+              onPress={() => {
+                if (isGroupLeader && member.id !== user.id) {
+                  handleViewMemberTrips(member);
+                } else if (member.id === user.id) {
+                  Alert.alert('Your Trips', 'View your trips in the History tab.');
+                } else {
+                  Alert.alert('Member', 'Only group leaders can view member trips.');
+                }
+              }}
+              disabled={!isGroupLeader || member.id === user.id}
+            >
+              <View style={styles.memberInfo}>
+                <Text style={styles.memberName}>
+                  {member.full_name || 'Unknown'}
+                  {member.id === user.id && ' (You)'}
+                </Text>
+                <Text style={[styles.memberRole, isLeader && styles.leaderRoleText]}>
+                  {isLeader ? '👑 Leader' : 'Member'}
+                </Text>
+              </View>
+              <View style={styles.memberRight}>
+                <Text style={styles.memberEmail}>{member.email}</Text>
+                {isGroupLeader && member.id !== user.id && (
+                  <Text style={styles.viewTripsIcon}>📋</Text>
+                )}
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      {isGroupLeader && (
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>📊 Team Reports</Text>
+          <TouchableOpacity
+            style={styles.reportButton}
+            onPress={handleExportTeamReport}
+            disabled={exporting}
+          >
+            <Text style={styles.reportButtonText}>
+              {exporting ? '⏳ Generating...' : '📋 Export Team Trip Report'}
+            </Text>
+            <Text style={styles.reportButtonSub}>Export all team members' trips to Excel</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {isGroupLeader && (
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>💳 Group Subscription</Text>
           <Text style={styles.sectionSubtitle}>
@@ -839,6 +741,26 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
         </View>
       )}
 
+      <View style={styles.actionButtons}>
+        {isGroupLeader ? (
+          <TouchableOpacity
+            style={[styles.actionButton, styles.dismissButton]}
+            onPress={handleDismissGroup}
+            disabled={processing}
+          >
+            <Text style={styles.actionButtonText}>🗑️ Dismiss Group</Text>
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity
+            style={[styles.actionButton, styles.leaveButton]}
+            onPress={handleLeaveGroup}
+            disabled={processing}
+          >
+            <Text style={styles.actionButtonText}>🚪 Leave Group</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+
       {showMemberTrips && selectedMember && (
         <Modal visible={true} animationType="slide" transparent={false}>
           <View style={styles.modalContainer}>
@@ -871,49 +793,6 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
         </Modal>
       )}
 
-      {/* Transfer Leadership Picker */}
-      <Modal
-        visible={showTransferModal}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setShowTransferModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>👑 Transfer Leadership</Text>
-            <Text style={{ color: '#666', marginBottom: 12 }}>
-              Choose a member to become the new group leader. You will become a regular member.
-            </Text>
-            <ScrollView style={{ maxHeight: 300 }}>
-              {groupMembers
-                .filter(m => m.id !== user.id)
-                .map((member) => (
-                  <TouchableOpacity
-                    key={member.id}
-                    style={styles.transferMemberRow}
-                    onPress={() => handleTransferLeadership(member)}
-                    disabled={processing}
-                  >
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.transferMemberName}>
-                        {member.full_name || 'Unknown'}
-                      </Text>
-                      <Text style={styles.transferMemberEmail}>{member.email}</Text>
-                    </View>
-                    <Text style={styles.transferMemberArrow}>→</Text>
-                  </TouchableOpacity>
-                ))}
-            </ScrollView>
-            <TouchableOpacity
-              style={[styles.btn, { backgroundColor: '#6c757d', marginTop: 12 }]}
-              onPress={() => setShowTransferModal(false)}
-            >
-              <Text style={styles.btnText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
       {showPaymentModal && (
         <PaymentModal
           visible={showPaymentModal}
@@ -928,22 +807,6 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
           onPaymentSuccess={handlePaymentSuccess}
           onPaymentError={() => setShowPaymentModal(false)}
           onPaymentCancel={() => setShowPaymentModal(false)}
-        />
-      )}
-
-      {showCreateGroup && (
-        <CreateGroupScreen
-          user={user}
-          onClose={() => { setShowCreateGroup(false); loadGroupData(); }}
-          onGroupCreated={() => { setShowCreateGroup(false); loadGroupData(); }}
-        />
-      )}
-
-      {showSearchGroup && (
-        <GroupSearchScreen
-          user={user}
-          onClose={() => { setShowSearchGroup(false); loadGroupData(); }}
-          onJoinGroup={() => { setShowSearchGroup(false); loadGroupData(); }}
         />
       )}
     </ScrollView>
@@ -978,62 +841,22 @@ const styles = StyleSheet.create({
   groupHeader: {
     backgroundColor: '#fff',
     padding: 20,
-    marginBottom: 12,
+    marginBottom: 16,
     elevation: 2
   },
-  groupHeaderRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between'
-  },
-  headerActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8
-  },
-  iconDangerBtn: {
-    backgroundColor: '#fdecea',
-    borderRadius: 20,
-    width: 36,
-    height: 36,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#f5c6cb'
-  },
-  iconDangerText: { fontSize: 18 },
-  groupName: { fontSize: 24, fontWeight: 'bold', color: '#1a1a1a', flex: 1, marginRight: 8 },
+  groupHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  groupName: { fontSize: 24, fontWeight: 'bold', color: '#1a1a1a' },
   groupDescription: { fontSize: 14, color: '#666', marginTop: 4 },
   groupLeader: { fontSize: 14, color: '#666', marginTop: 8 },
   leaderBadge: {
     backgroundColor: '#6f42c1',
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
     borderRadius: 12
   },
   leaderBadgeText: { color: '#fff', fontSize: 12, fontWeight: 'bold' },
   groupMembersCount: { fontSize: 14, color: '#666', marginTop: 4 },
   groupPlan: { fontSize: 14, color: '#666', marginTop: 4 },
-
-  tabBar: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    marginBottom: 12,
-    gap: 8
-  },
-  tabBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    borderRadius: 8,
-    backgroundColor: '#e9ecef',
-    alignItems: 'center',
-    justifyContent: 'center'
-  },
-  tabBtnActive: { backgroundColor: '#007AFF' },
-  tabBtnText: { fontSize: 13, fontWeight: '600', color: '#555' },
-  tabBtnTextActive: { color: '#fff' },
-
   section: {
     backgroundColor: '#fff',
     borderRadius: 12,
@@ -1060,7 +883,7 @@ const styles = StyleSheet.create({
   actionBtn: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: 6, marginLeft: 8 },
   approveBtn: { backgroundColor: '#28a745' },
   rejectBtn: { backgroundColor: '#dc3545' },
-  actionBtnText: { fontSize: 14, color: '#fff', fontWeight: 'bold' },
+  actionBtnText: { fontSize: 12, color: '#fff', fontWeight: 'bold' },
   memberCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1109,18 +932,16 @@ const styles = StyleSheet.create({
   },
   reportButtonText: { fontSize: 16, fontWeight: 'bold', color: '#2e7d32' },
   reportButtonSub: { fontSize: 12, color: '#666', marginTop: 2 },
-
-  transferBtn: {
-    backgroundColor: '#ede7f6',
-    padding: 16,
+  actionButtons: { paddingHorizontal: 16, marginBottom: 30 },
+  actionButton: {
+    paddingVertical: 14,
     borderRadius: 10,
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#d1c4e9'
+    marginBottom: 10
   },
-  transferBtnText: { fontSize: 16, fontWeight: 'bold', color: '#6f42c1' },
-  transferBtnSub: { fontSize: 12, color: '#666', marginTop: 2 },
-
+  leaveButton: { backgroundColor: '#dc3545' },
+  dismissButton: { backgroundColor: '#dc3545' },
+  actionButtonText: { color: '#fff', fontSize: 16, fontWeight: 'bold' },
   modalContainer: { flex: 1, backgroundColor: '#f4f6f8' },
   modalHeader: {
     flexDirection: 'row',
@@ -1133,33 +954,8 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e0e0e0'
   },
   modalBack: { fontSize: 16, color: '#007AFF' },
-  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#1a1a1a', marginBottom: 8 },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#1a1a1a' },
   modalContent: { flex: 1, padding: 16 },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    justifyContent: 'center',
-    paddingHorizontal: 20
-  },
-  modalContent: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
-    elevation: 5,
-    maxHeight: '80%'
-  },
-
-  transferMemberRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#f0f0f0'
-  },
-  transferMemberName: { fontSize: 15, fontWeight: 'bold', color: '#333' },
-  transferMemberEmail: { fontSize: 12, color: '#888' },
-  transferMemberArrow: { fontSize: 18, color: '#6f42c1' },
-
   tripCard: {
     backgroundColor: '#fff',
     padding: 12,
@@ -1171,9 +967,7 @@ const styles = StyleSheet.create({
   tripDetails: { fontSize: 12, color: '#555', marginTop: 2 },
   tripDistance: { fontSize: 12, color: '#007AFF', marginTop: 2 },
   tripPurpose: { fontSize: 12, color: '#888', marginTop: 2 },
-  emptyText: { textAlign: 'center', color: '#999', padding: 20 },
-  btn: { padding: 15, borderRadius: 8, alignItems: 'center' },
-  btnText: { color: '#fff', fontSize: 16, fontWeight: 'bold' }
+  emptyText: { textAlign: 'center', color: '#999', padding: 20 }
 });
 
 export default GroupsScreen;

@@ -70,7 +70,6 @@ const DEFAULT_PURPOSES = {
 };
 
 const TIER_CONFIG = {
-  'Group Free': { limit: 30, excel: false, price: '$0/mo', group: true, db_tier: 'team_free' },
   'Personal Free': { limit: 30, excel: false, price: '$0/mo', group: false, db_tier: 'personal_free' },
   'Personal Basic': { limit: 100, excel: true, price: '$4.99/mo', group: false, db_tier: 'personal_basic' },
   'Personal Pro': { limit: 99999, excel: true, price: '$9.99/mo', group: false, db_tier: 'personal_pro' },
@@ -475,8 +474,7 @@ export default function App() {
       if (error) throw error;
 
       const tierMap = {
-        'personal_free': 'Group Free',
-        'team_free': 'Group Free',
+        'personal_free': 'Personal Free',
         'personal_basic': 'Personal Basic',
         'personal_pro': 'Personal Pro',
         'team_basic': 'Group Basic',
@@ -490,7 +488,7 @@ export default function App() {
         await supabase
           .from('teams')
           .update({
-            subscription_tier: 'team_free',
+            subscription_tier: 'personal_free',
             monthly_trip_limit: 30,
             payment_status: 'expired',
             max_members: 1
@@ -507,7 +505,7 @@ export default function App() {
       }
 
       return {
-        tier: tierMap[data.subscription_tier] || 'Group Free',
+        tier: tierMap[data.subscription_tier] || 'Personal Free',
         limit: data.monthly_trip_limit || 30,
         status: data.payment_status || 'free',
         isActive: isActive,
@@ -652,7 +650,7 @@ export default function App() {
       setUserId(user.id);
       setHasGroup(hasValidTeam);
 
-      const isGroupLeaderCheck = hasValidTeam && currentProfile.role === 'leader';
+      const isGroupLeaderCheck = hasValidTeam && (currentProfile.role === 'leader' || currentProfile.role === 'admin');
 
       if (isGroupLeaderCheck && currentTeamId) {
         await fetchPendingCount(currentTeamId, true);
@@ -1218,7 +1216,7 @@ export default function App() {
           .from('teams')
           .insert({
             name: teamName,
-            subscription_tier: 'team_free',
+            subscription_tier: 'personal_free',
             monthly_trip_limit: 30,
             max_members: 1
           })
@@ -1570,37 +1568,19 @@ export default function App() {
   };
 
   const calculateDistance = (coords) => {
-  if (!coords || coords.length < 2) return '0.00';
-  let totalMeters = 0;
-  let prev = coords[0];
-  for (let i = 1; i < coords.length; i++) {
-    const cur = coords[i];
-
-    if (typeof cur.accuracy === 'number' && cur.accuracy > 30) continue;
-
-    const R = 6371e3;
-    const lat1 = prev.latitude, lon1 = prev.longitude;
-    const lat2 = cur.latitude, lon2 = cur.longitude;
-    const φ1 = lat1 * Math.PI / 180, φ2 = lat2 * Math.PI / 180;
-    const Δφ = (lat2 - lat1) * Math.PI / 180;
-    const Δλ = (lon2 - lon1) * Math.PI / 180;
-    const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
-    const hopMeters = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-
-    if (hopMeters < 10) continue;
-
-    const t1 = prev.timestamp || 0;
-    const t2 = cur.timestamp || 0;
-    if (t1 && t2) {
-      const dtSec = (t2 - t1) / 1000;
-      if (dtSec > 0 && hopMeters / dtSec > 55) continue;
+    let totalMeters = 0;
+    for (let i = 0; i < coords.length - 1; i++) {
+      const lat1 = coords[i].latitude, lon1 = coords[i].longitude;
+      const lat2 = coords[i+1].latitude, lon2 = coords[i+1].longitude;
+      const R = 6371e3;
+      const φ1 = lat1 * Math.PI / 180, φ2 = lat2 * Math.PI / 180;
+      const Δφ = (lat2 - lat1) * Math.PI / 180;
+      const Δλ = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
+      totalMeters += R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     }
-
-    totalMeters += hopMeters;
-    prev = cur;
-  }
-  return (totalMeters / 1000).toFixed(2);
-};
+    return (totalMeters / 1000).toFixed(2);
+  };
 
   const handleInitiateNewTrip = () => {
     if (isTripActive || isTrackingRef.current) {
@@ -2324,6 +2304,58 @@ export default function App() {
                 <Text style={styles.statLbl}>My Distance</Text>
               </View>
             </View>
+
+            {currentConfig.group && teamMembers.length > 0 ? (
+              <View style={styles.groupDashboardSection}>
+                <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                  <Text style={styles.sectionHeaderTitle}>👑 Group Admin Overview</Text>
+                </View>
+
+                <View style={[styles.statsCard, { backgroundColor: '#eef6ff' }]}>
+                  <View style={styles.statItem}>
+                    <Text style={[styles.statVal, { color: '#28a745' }]}>{teamStats.totalTrips}</Text>
+                    <Text style={styles.statLbl}>Team Total Trips</Text>
+                  </View>
+                  <View style={styles.statDivider} />
+                  <View style={styles.statItem}>
+                    <Text style={[styles.statVal, { color: '#28a745' }]}>{teamStats.totalDistance} km</Text>
+                    <Text style={styles.statLbl}>Team Distance</Text>
+                  </View>
+                </View>
+
+                <Text style={styles.subSectionTitle}>Team Members Activity</Text>
+                {teamMembers.map((member) => {
+                  const stats = getMemberStats(member.name);
+                  return (
+                    <TouchableOpacity
+                      key={member.id}
+                      style={styles.teamMemberRow}
+                      onPress={() => viewMemberTripDetails(member.name)}
+                    >
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.memberName}>
+                          {member.name} {member.role === 'admin' && '(Admin)'} <Text style={styles.memberRole}>({member.role})</Text>
+                        </Text>
+                        <Text style={styles.memberStats}>{stats.totalTrips} trips completed • {stats.totalDistance} km</Text>
+                      </View>
+                      <Text style={styles.memberViewBtn}>View Trips →</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+
+                <TouchableOpacity
+                  style={styles.viewAllTripsBtn}
+                  onPress={() => viewMemberTripDetails('ALL')}
+                >
+                  <Text style={styles.viewAllTripsBtnText}>📋 View All Team Trips ({getMemberTrips('ALL').length})</Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <TouchableOpacity style={styles.groupUpgradeBanner} onPress={() => setShowSearchGroup(true)}>
+                <Text style={styles.groupUpgradeTitle}>👥 Join or Create a Group</Text>
+                <Text style={styles.groupUpgradeSub}>Join an existing group or create your own to collaborate with team members.</Text>
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity
               style={[styles.exportBtn, isExporting && { backgroundColor: '#6c757d' }]}
