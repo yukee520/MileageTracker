@@ -1,8 +1,19 @@
-import { supabase } from '../lib/supabase';
+import { createClient } from '@supabase/supabase-js';
 
+const SUPABASE_URL = 'https://dkpjicqepexhgbrzzreo.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_7CXIRyhWhmsQfRfj9dDhWw_Z2efV6fx';
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+// ============================================================
+// CONFIGURATION
+// ============================================================
+// Each user can refer exactly ONE friend and earn ONE free month total.
 const MAX_FREE_MONTHS_PER_USER = 1;
 const FREE_MONTHS_PER_REFERRAL = 1;
 
+// ============================================================
+// HELPERS
+// ============================================================
 function buildReferralCode(nameOrEmail) {
   const base = (nameOrEmail || 'REF').toString().replace(/[^A-Za-z]/g, '').toUpperCase();
   const namePart = base.substring(0, 3).padEnd(3, 'X');
@@ -16,9 +27,14 @@ function addOneMonth(fromDate) {
   return d;
 }
 
+function currentMonthYear() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
 class ReferralService {
   // ============================================================
-  // GET REFERRAL CODE (creates one if missing; live counters)
+  // GET REFERRAL CODE (creates one if missing)
   // ============================================================
   static async getReferralCode(userId) {
     try {
@@ -31,6 +47,7 @@ class ReferralService {
       if (error) throw error;
       if (!data) return null;
 
+      // If no code yet, generate and save one
       if (!data.referral_code) {
         const newCode = buildReferralCode(data.full_name || data.email);
         const { data: updated, error: updErr } = await supabase
@@ -44,23 +61,7 @@ class ReferralService {
         return updated;
       }
 
-      // Live counters from reward rows
-      const { count: totalCount } = await supabase
-        .from('referral_rewards')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', userId);
-
-      const { count: usedCount } = await supabase
-        .from('referral_rewards')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', userId)
-        .eq('status', 'used');
-
-      return {
-        ...data,
-        free_months_earned: totalCount || 0,
-        referral_rewards_used: usedCount || 0,
-      };
+      return data;
     } catch (error) {
       console.error('Error getting referral code:', error);
       return null;
@@ -68,7 +69,7 @@ class ReferralService {
   }
 
   // ============================================================
-  // GENERATE REFERRAL CODE
+  // GENERATE REFERRAL CODE (explicit; usually not needed)
   // ============================================================
   static async generateReferralCode(userId, userName) {
     try {
@@ -101,7 +102,7 @@ class ReferralService {
   }
 
   // ============================================================
-  // APPLY REFERRAL CODE (called when new user enters a code)
+  // APPLY REFERRAL CODE (called when the new user enters a code)
   // ============================================================
   static async applyReferral(code, userId) {
     try {
@@ -111,9 +112,10 @@ class ReferralService {
         return { success: false, error: 'Please enter a referral code' };
       }
 
+      // 1) Find referrer by code
       const { data: referrer, error: referrerErr } = await supabase
         .from('profiles')
-        .select('id, email, full_name, referral_code')
+        .select('id, email, full_name, referral_code, free_months_earned')
         .eq('referral_code', cleanCode)
         .maybeSingle();
 
@@ -123,23 +125,20 @@ class ReferralService {
         return { success: false, error: 'Invalid referral code' };
       }
 
+      // 2) Self-referral guard
       if (referrer.id === userId) {
         return { success: false, error: 'You cannot use your own referral code' };
       }
 
-      // Referrer cap check (count pending + used rows)
-      const { count: referrerRewards } = await supabase
-        .from('referral_rewards')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', referrer.id);
-
-      if ((referrerRewards || 0) >= MAX_FREE_MONTHS_PER_USER) {
+      // 3) Referrer already earned their one-time bonus
+      if ((referrer.free_months_earned || 0) >= MAX_FREE_MONTHS_PER_USER) {
         return {
           success: false,
           error: 'This referrer has already received their free month'
         };
       }
 
+      // 4) New user has already used a code
       const { data: me, error: meErr } = await supabase
         .from('profiles')
         .select('id, referred_by')
@@ -152,6 +151,7 @@ class ReferralService {
         return { success: false, error: 'You have already used a referral code' };
       }
 
+      // 5) Link the new user to the referrer
       const { error: updateErr } = await supabase
         .from('profiles')
         .update({ referred_by: referrer.id })
@@ -171,22 +171,76 @@ class ReferralService {
   }
 
   // ============================================================
-  // CHECK AND REWARD — calls the security-definer RPC
+  // CHECK AND REWARD (called from endTrip)
+  // Runs when the new user completes their first trip.
+  // Creates a reward row for the referrer (status = 'pending').
+  // Does NOT consume it — the referrer must tap "Redeem" on the app.
   // ============================================================
   static async checkAndRewardReferral(userId) {
     try {
-      console.log('🎁 ReferralService: RPC starting for', userId);
-      const { data, error } = await supabase.rpc('award_referral_for_new_user');
-      console.log('🎁 ReferralService: RPC raw — data:', JSON.stringify(data), 'error:', JSON.stringify(error));
+      // 1) Read this user's referred_by
+      const { data: me, error: meErr } = await supabase
+        .from('profiles')
+        .select('id, referred_by')
+        .eq('id', userId)
+        .single();
 
-      if (error) throw error;
-
-      if (!data || data.success !== true) {
-        return {
-          success: false,
-          message: data?.message || data?.error || 'Reward not issued'
-        };
+      if (meErr) throw meErr;
+      if (!me?.referred_by) {
+        return { success: false, message: 'No referrer linked' };
       }
+
+      const referrerId = me.referred_by;
+
+      // 2) If a reward row already exists for this pair, skip
+      const { data: existingReward, error: existingErr } = await supabase
+        .from('referral_rewards')
+        .select('id')
+        .eq('user_id', referrerId)
+        .eq('referred_user_id', userId)
+        .maybeSingle();
+
+      if (existingErr) throw existingErr;
+
+      if (existingReward) {
+        return { success: false, message: 'Reward already issued for this referral' };
+      }
+
+      // 3) Referrer already hit their cap
+      const { data: referrer, error: refErr } = await supabase
+        .from('profiles')
+        .select('id, referral_count, free_months_earned')
+        .eq('id', referrerId)
+        .single();
+
+      if (refErr) throw refErr;
+
+      if ((referrer.free_months_earned || 0) >= MAX_FREE_MONTHS_PER_USER) {
+        return { success: false, message: 'Referrer has already earned their free month' };
+      }
+
+      // 4) Insert reward row (pending)
+      const { error: insertErr } = await supabase
+        .from('referral_rewards')
+        .insert({
+          user_id: referrerId,
+          referred_user_id: userId,
+          month_year: currentMonthYear(),
+          reward_type: 'free_month',
+          status: 'pending',
+          amount: FREE_MONTHS_PER_REFERRAL
+        });
+
+      if (insertErr) throw insertErr;
+
+      // 5) Bump the referrer's counters on profiles
+      await supabase
+        .from('profiles')
+        .update({
+          referral_count: (referrer.referral_count || 0) + 1,
+          free_months_earned: (referrer.free_months_earned || 0) + FREE_MONTHS_PER_REFERRAL
+        })
+        .eq('id', referrerId);
 
       return {
         success: true,
@@ -238,11 +292,13 @@ class ReferralService {
 
   // ============================================================
   // REDEEM FREE MONTH
-  // - personal_free → upgrade to personal_basic for 1 month
-  // - any paid tier → extend subscription_expiry by 1 month
+  // - If referrer is on personal_free  → upgrade to personal_basic for 1 month
+  // - If referrer is on any paid tier  → extend subscription_expiry by 1 month
+  // Consumes one pending reward row (status -> 'used').
   // ============================================================
   static async redeemFreeMonth(userId) {
     try {
+      // 1) Find the oldest pending reward
       const { data: pending, error: pendingErr } = await supabase
         .from('referral_rewards')
         .select('*')
@@ -258,6 +314,7 @@ class ReferralService {
         return { success: false, error: 'No free months available to redeem' };
       }
 
+      // 2) Read current tier + expiry
       const { data: profile, error: profileErr } = await supabase
         .from('profiles')
         .select('subscription_tier, subscription_expiry, referral_rewards_used')
@@ -276,14 +333,17 @@ class ReferralService {
       let nextExpiry;
 
       if (isPaid) {
+        // Extend from max(now, currentExpiry) by 1 month, keep the tier
         const base = currentExpiry && currentExpiry > now ? currentExpiry : now;
         nextTier = currentTier;
         nextExpiry = addOneMonth(base);
       } else {
+        // personal_free → personal_basic for 1 month from now
         nextTier = 'personal_basic';
         nextExpiry = addOneMonth(now);
       }
 
+      // 3) Update profile
       const { error: updateProfileErr } = await supabase
         .from('profiles')
         .update({
@@ -295,6 +355,7 @@ class ReferralService {
 
       if (updateProfileErr) throw updateProfileErr;
 
+      // 4) Mark the reward used
       const { error: useErr } = await supabase
         .from('referral_rewards')
         .update({ status: 'used', used_at: new Date().toISOString() })
@@ -315,7 +376,7 @@ class ReferralService {
   }
 
   // ============================================================
-  // APPLY FREE MONTH (compat alias)
+  // APPLY FREE MONTH (kept for compatibility; delegates to redeem)
   // ============================================================
   static async applyFreeMonth(userId) {
     return this.redeemFreeMonth(userId);

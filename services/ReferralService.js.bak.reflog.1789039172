@@ -1,4 +1,8 @@
-import { supabase } from '../lib/supabase';
+import { createClient } from '@supabase/supabase-js';
+
+const SUPABASE_URL = 'https://dkpjicqepexhgbrzzreo.supabase.co';
+const SUPABASE_ANON_KEY = 'sb_publishable_7CXIRyhWhmsQfRfj9dDhWw_Z2efV6fx';
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 const MAX_FREE_MONTHS_PER_USER = 1;
 const FREE_MONTHS_PER_REFERRAL = 1;
@@ -175,9 +179,7 @@ class ReferralService {
   // ============================================================
   static async checkAndRewardReferral(userId) {
     try {
-      console.log('🎁 ReferralService: RPC starting for', userId);
       const { data, error } = await supabase.rpc('award_referral_for_new_user');
-      console.log('🎁 ReferralService: RPC raw — data:', JSON.stringify(data), 'error:', JSON.stringify(error));
 
       if (error) throw error;
 

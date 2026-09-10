@@ -206,7 +206,7 @@ const ReferralScreen = ({ user, onClose }) => {
       const result = await ReferralService.applyReferral(applyCode, user.id);
 
       if (result.success) {
-        Alert.alert('Success!', 'Referral code applied successfully! Your friend will receive a free month after your first trip.');
+        Alert.alert('Success!', 'Referral code applied successfully! You will get a free month after your first trip.');
         setShowApplyModal(false);
         setApplyCode('');
         loadReferralData();
