@@ -503,31 +503,6 @@ const AdminPanel = ({ user, onClose }) => {
   // ============================================================
   // RENDER FUNCTIONS
   // ============================================================
-  const handleDeleteFeedback = (feedbackId, email) => {
-    Alert.alert(
-      'Delete Feedback',
-      `Delete this feedback${email ? ' from ' + email : ''}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const result = await FeedbackService.deleteFeedback(feedbackId);
-              if (!result.success) throw new Error(result.error || 'Delete failed');
-              Alert.alert('Success', 'Feedback deleted.');
-              loadData();
-            } catch (error) {
-              console.error('❌ Delete feedback error:', error);
-              Alert.alert('Error', 'Failed to delete feedback: ' + error.message);
-            }
-          }
-        }
-      ]
-    );
-  };
-
   const renderFeedback = () => (
     <View style={{ padding: 16 }}>
       <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 12 }}>
@@ -570,21 +545,6 @@ const AdminPanel = ({ user, onClose }) => {
                 {item.platform} • v{item.app_version || '1.0.0'}
               </Text>
             )}
-            <TouchableOpacity
-              style={{
-                marginTop: 10,
-                alignSelf: 'flex-end',
-                backgroundColor: '#dc3545',
-                paddingVertical: 6,
-                paddingHorizontal: 12,
-                borderRadius: 6,
-              }}
-              onPress={() => handleDeleteFeedback(item.id, item.email)}
-            >
-              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 12 }}>
-                🗑️ Delete
-              </Text>
-            </TouchableOpacity>
           </View>
         ))
       )}
@@ -801,13 +761,7 @@ const AdminPanel = ({ user, onClose }) => {
             style={[styles.navBtn, view === 'teams' && styles.navBtnActive]}
             onPress={() => setView('teams')}
           >
-             <Text style={[styles.navBtnText, view === 'teams' && styles.navBtnTextActive]}>🏢</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.navBtn, view === 'feedback' && styles.navBtnActive]}
-            onPress={() => setView('feedback')}
-          >
-            <Text style={[styles.navBtnText, view === 'feedback' && styles.navBtnTextActive]}>💬</Text>
+            <Text style={[styles.navBtnText, view === 'teams' && styles.navBtnTextActive]}>🏢</Text>
           </TouchableOpacity>
         </View>
 
@@ -821,7 +775,6 @@ const AdminPanel = ({ user, onClose }) => {
           {view === 'users' && renderUsers()}
           {view === 'trips' && renderTrips()}
           {view === 'teams' && renderTeams()}
-          {view === 'feedback' && renderFeedback()}
         </ScrollView>
 
         {/* Edit User Modal */}

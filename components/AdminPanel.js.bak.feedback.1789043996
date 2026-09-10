@@ -14,7 +14,6 @@ import {
 } from 'react-native';
 import { createClient } from '@supabase/supabase-js';
 import DateTimePicker from '@react-native-community/datetimepicker';
-import FeedbackService from '../services/FeedbackService';
 
 const SUPABASE_URL = 'https://dkpjicqepexhgbrzzreo.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_7CXIRyhWhmsQfRfj9dDhWw_Z2efV6fx';
@@ -36,7 +35,6 @@ const AdminPanel = ({ user, onClose }) => {
   const [editExpiryDate, setEditExpiryDate] = useState(new Date());
   const [showEditModal, setShowEditModal] = useState(false);
   const [view, setView] = useState('dashboard');
-  const [feedback, setFeedback] = useState([]);
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   const isMounted = useRef(true);
@@ -147,9 +145,6 @@ const AdminPanel = ({ user, onClose }) => {
       if (!teamsError && isMounted.current) {
         setTeams(allTeams || []);
       }
-
-      const fb = await FeedbackService.getAllFeedback();
-      if (isMounted.current) setFeedback(fb || []);
 
       if (isMounted.current) {
         const totalTrips = allTrips?.length || 0;
@@ -503,94 +498,6 @@ const AdminPanel = ({ user, onClose }) => {
   // ============================================================
   // RENDER FUNCTIONS
   // ============================================================
-  const handleDeleteFeedback = (feedbackId, email) => {
-    Alert.alert(
-      'Delete Feedback',
-      `Delete this feedback${email ? ' from ' + email : ''}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const result = await FeedbackService.deleteFeedback(feedbackId);
-              if (!result.success) throw new Error(result.error || 'Delete failed');
-              Alert.alert('Success', 'Feedback deleted.');
-              loadData();
-            } catch (error) {
-              console.error('❌ Delete feedback error:', error);
-              Alert.alert('Error', 'Failed to delete feedback: ' + error.message);
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  const renderFeedback = () => (
-    <View style={{ padding: 16 }}>
-      <Text style={{ fontSize: 18, fontWeight: 'bold', marginBottom: 12 }}>
-        💬 Feedback ({feedback.length})
-      </Text>
-      {feedback.length === 0 ? (
-        <Text style={{ color: '#888', paddingVertical: 20, textAlign: 'center' }}>
-          No feedback yet.
-        </Text>
-      ) : (
-        feedback.map((item) => (
-          <View
-            key={item.id}
-            style={{
-              backgroundColor: '#fff',
-              borderRadius: 10,
-              padding: 14,
-              marginBottom: 10,
-              elevation: 1,
-            }}
-          >
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
-              <Text style={{ fontWeight: 'bold', color: '#333' }}>
-                {item.category === 'bug' ? '🐞' :
-                 item.category === 'feature' ? '💡' :
-                 item.category === 'general' ? '💬' : '📝'} {item.category}
-              </Text>
-              <Text style={{ fontSize: 12, color: '#888' }}>
-                {new Date(item.created_at).toLocaleString()}
-              </Text>
-            </View>
-            <Text style={{ fontSize: 12, color: '#666', marginBottom: 6 }}>
-              {item.email || 'unknown'}
-            </Text>
-            <Text style={{ fontSize: 14, color: '#111', lineHeight: 20 }}>
-              {item.message}
-            </Text>
-            {item.platform && (
-              <Text style={{ fontSize: 11, color: '#aaa', marginTop: 6 }}>
-                {item.platform} • v{item.app_version || '1.0.0'}
-              </Text>
-            )}
-            <TouchableOpacity
-              style={{
-                marginTop: 10,
-                alignSelf: 'flex-end',
-                backgroundColor: '#dc3545',
-                paddingVertical: 6,
-                paddingHorizontal: 12,
-                borderRadius: 6,
-              }}
-              onPress={() => handleDeleteFeedback(item.id, item.email)}
-            >
-              <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 12 }}>
-                🗑️ Delete
-              </Text>
-            </TouchableOpacity>
-          </View>
-        ))
-      )}
-    </View>
-  );
-
   const renderDashboard = () => (
     <View style={styles.statsContainer}>
       <View style={styles.statCard}>
@@ -801,13 +708,7 @@ const AdminPanel = ({ user, onClose }) => {
             style={[styles.navBtn, view === 'teams' && styles.navBtnActive]}
             onPress={() => setView('teams')}
           >
-             <Text style={[styles.navBtnText, view === 'teams' && styles.navBtnTextActive]}>🏢</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.navBtn, view === 'feedback' && styles.navBtnActive]}
-            onPress={() => setView('feedback')}
-          >
-            <Text style={[styles.navBtnText, view === 'feedback' && styles.navBtnTextActive]}>💬</Text>
+            <Text style={[styles.navBtnText, view === 'teams' && styles.navBtnTextActive]}>🏢</Text>
           </TouchableOpacity>
         </View>
 
@@ -821,7 +722,6 @@ const AdminPanel = ({ user, onClose }) => {
           {view === 'users' && renderUsers()}
           {view === 'trips' && renderTrips()}
           {view === 'teams' && renderTeams()}
-          {view === 'feedback' && renderFeedback()}
         </ScrollView>
 
         {/* Edit User Modal */}

@@ -1,0 +1,70 @@
+import { supabase } from '../lib/supabase';
+import { Platform } from 'react-native';
+
+class FeedbackService {
+  static async submitFeedback({ userId, email, category, message }) {
+    try {
+      if (!message || !message.trim()) {
+        return { success: false, error: 'Please enter a message' };
+      }
+      if (!userId) {
+        return { success: false, error: 'Not signed in' };
+      }
+
+      const payload = {
+        user_id: userId,
+        email: email || null,
+        category: category || 'general',
+        message: message.trim(),
+        platform: Platform.OS,
+        app_version: '1.0.0',
+      };
+
+      const { data, error } = await supabase
+        .from('feedback')
+        .insert(payload)
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      return { success: true, data };
+    } catch (error) {
+      console.error('Error submitting feedback:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  static async getMyFeedback(userId) {
+    try {
+      const { data, error } = await supabase
+        .from('feedback')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error loading feedback:', error);
+      return [];
+    }
+  }
+
+  static async getAllFeedback() {
+    try {
+      const { data, error } = await supabase
+        .from('feedback')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error loading all feedback:', error);
+      return [];
+    }
+  }
+}
+
+export default FeedbackService;

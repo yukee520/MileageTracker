@@ -2444,13 +2444,13 @@ export default function App() {
               >
                 <Text style={styles.btnText}>🔐 Admin Panel</Text>
               </TouchableOpacity>
+<TouchableOpacity
+  style={[styles.btn, { backgroundColor: '#00796b', marginTop: 12 }]}
+  onPress={() => setShowFeedbackScreen(true)}
+>
+  <Text style={styles.btnText}>💬 Send Feedback</Text>
+</TouchableOpacity>
             )}
-            <TouchableOpacity
-              style={[styles.btn, { backgroundColor: '#00796b', marginTop: 12 }]}
-              onPress={() => setShowFeedbackScreen(true)}
-            >
-              <Text style={styles.btnText}>💬 Send Feedback</Text>
-            </TouchableOpacity>
 
             <TouchableOpacity style={[styles.btn, styles.deleteBtn, { marginTop: 15 }]} onPress={handleLogout}>
               <Text style={styles.btnText}>🚪 Sign Out</Text>
