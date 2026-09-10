@@ -443,7 +443,7 @@ export default function App() {
         date: new Date(trip.trip_date).toLocaleDateString(),
         year: new Date(trip.trip_date).getFullYear().toString(),
         month: String(new Date(trip.trip_date).getMonth() + 1).padStart(2, '0'),
-        time: trip.time_range || '00:00 - 00:00',
+        time: '00:00 - 00:00',
         purposeCategory: trip.purpose_category,
         purpose: trip.purpose,
         from: trip.from_address,
@@ -1276,8 +1276,7 @@ export default function App() {
         from_address: tripData.from,
         to_address: tripData.to,
         place_name: tripData.placeName || null,
-        distance_km: tripData.distance,
-        time_range: tripData.time
+        distance_km: tripData.distance
       };
 
       const { data, error } = await supabase
@@ -1339,7 +1338,6 @@ export default function App() {
           to_address: updatedData.to,
           place_name: updatedData.placeName || null,
           distance_km: updatedData.distance,
-          time_range: updatedData.time,
           trip_date: formattedDate
         })
         .eq('id', tripId);
