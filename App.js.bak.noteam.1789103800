@@ -1247,8 +1247,36 @@ export default function App() {
         throw new Error('Could not find your profile. Please logout and login again.');
       }
 
-      const teamId = profileData.team_id || null;
+      let teamId = profileData.team_id;
 
+      if (!teamId) {
+        console.log('No team found, creating one...');
+        const teamName = `${profileData.full_name || user.email.split('@')[0]}'s Team`;
+        const { data: teamData, error: teamError } = await supabase
+          .from('teams')
+          .insert({
+            name: teamName,
+            subscription_tier: 'team_free',
+            monthly_trip_limit: 30,
+            max_members: 1
+          })
+          .select()
+          .single();
+
+        if (teamError) {
+          console.error('Error creating team:', teamError);
+        } else {
+          teamId = teamData.id;
+          console.log('Team created:', teamData);
+          const { error: updateError } = await supabase
+            .from('profiles')
+            .update({ team_id: teamId })
+            .eq('id', user.id);
+          if (updateError) {
+            console.error('Error updating profile with team_id:', updateError);
+          }
+        }
+      }
 
       let formattedDate;
       try {
