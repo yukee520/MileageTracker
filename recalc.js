@@ -104,7 +104,7 @@ async function geocode(address) {
 async function osrmDrivingDistance(lat1, lon1, lat2, lon2) {
   if (Math.abs(lat1 - lat2) < 0.0001 && Math.abs(lon1 - lon2) < 0.0001) return 0;
 
-  const url = `http://router.project-osrm.org/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=false&alternatives=true&steps=false`;
+  const url = `https://routing.openstreetmap.de/routed-car/route/v1/driving/${lon1},${lat1};${lon2},${lat2}?overview=false&alternatives=true&steps=false`;
   try {
     const res = await fetch(url);
     const data = await res.json();
