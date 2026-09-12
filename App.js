@@ -1430,7 +1430,7 @@ export default function App() {
       setLoadingSummary(true);
 
       const endTime = new Date();
-      const distanceKM = await calculateDistance(route);
+      const distanceKM = await calculateDistance(routeForDistance);
 
       let fromAddr = 'N/A', toAddr = 'N/A', extractedPlaceName = '';
 
