@@ -16,6 +16,7 @@ import GroupService from '../services/GroupService';
 import CreateGroupScreen from './CreateGroupScreen';
 import GroupSearchScreen from './GroupSearchScreen';
 import PaymentModal from './PaymentModal';
+import PeriodPickerModal from './PeriodPickerModal';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import ExcelJS from 'exceljs';
@@ -53,6 +54,8 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedTier, setSelectedTier] = useState(null);
   const [activeSection, setActiveSection] = useState('requests');
+  const [showTeamExportPeriodPicker, setShowTeamExportPeriodPicker] = useState(false);
+  const [teamTripYears, setTeamTripYears] = useState([]);
   const [showTransferModal, setShowTransferModal] = useState(false);
 
   const isMounted = useRef(true);
@@ -242,16 +245,41 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
     }
   };
 
-  const handleExportTeamReport = async () => {
+  const handleExportTeamReport = async (period) => {
     try {
       setExporting(true);
 
       const memberIds = groupMembers.map(m => m.id);
-      const { data: allTrips, error } = await supabase
-        .from('trip_logs')
-        .select('*, profiles!trip_logs_user_id_fkey(full_name, email)')
-        .in('user_id', memberIds)
-        .order('trip_date', { ascending: false });
+
+      const { year = 'ALL', months = 'ALL' } = period || {};
+      let startDate = null;
+      let endDate = null;
+
+      if (year !== 'ALL') {
+        if (months !== 'ALL' && Array.isArray(months) && months.length > 0) {
+          const sorted = [...months].sort((a, b) => a - b);
+          const minM = String(sorted[0]).padStart(2, '0');
+          const maxM = String(sorted[sorted.length - 1]).padStart(2, '0');
+          const lastDay = new Date(parseInt(year), sorted[sorted.length - 1], 0).getDate();
+          startDate = `${year}-${minM}-01`;
+          endDate = `${year}-${maxM}-${String(lastDay).padStart(2, '0')}`;
+        } else {
+          startDate = `${year}-01-01`;
+          endDate = `${year}-12-31`;
+        }
+      }
+
+let query = supabase
+  .from('trip_logs')
+  .select('*, profiles!trip_logs_user_id_fkey(full_name, email)')
+  .in('user_id', memberIds)
+  .order('trip_date', { ascending: false });
+
+if (startDate && endDate) {
+  query = query.gte('trip_date', startDate).lte('trip_date', endDate);
+}
+
+const { data: allTrips, error } = await query;
 
       if (error) throw error;
 
@@ -780,7 +808,23 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
             <>
               <TouchableOpacity
                 style={[styles.reportButton, { marginTop: 12 }]}
-                onPress={handleExportTeamReport}
+                onPress={async () => {
+                  try {
+                    const memberIds = groupMembers.map(m => m.id);
+                    const { data } = await supabase
+                      .from('trip_logs')
+                      .select('trip_date')
+                      .in('user_id', memberIds);
+                    const years = Array.from(
+                      new Set((data || []).map(t => String(new Date(t.trip_date).getFullYear())))
+                    ).sort().reverse();
+                    setTeamTripYears(years);
+                  } catch (e) {
+                    console.error('Error fetching team years:', e);
+                    setTeamTripYears([]);
+                  }
+                  setShowTeamExportPeriodPicker(true);
+                }}
                 disabled={exporting}
               >
                 <Text style={styles.reportButtonText}>
@@ -914,6 +958,17 @@ const GroupsScreen = ({ user, onRefresh, refreshKey, pendingRequestsCount, onPen
         </View>
       </Modal>
 
+
+      <PeriodPickerModal
+        visible={showTeamExportPeriodPicker}
+        trips={teamTripYears.map(y => ({ year: y }))}
+        title="Export Team Report"
+        onCancel={() => setShowTeamExportPeriodPicker(false)}
+        onExport={(period) => {
+          setShowTeamExportPeriodPicker(false);
+          handleExportTeamReport(period);
+        }}
+      />
       {showPaymentModal && (
         <PaymentModal
           visible={showPaymentModal}
