@@ -17,6 +17,7 @@ import GroupSearchScreen from './components/GroupSearchScreen';
 import AdminGroupPanel from './components/AdminGroupPanel';
 import GroupsScreen from './components/GroupsScreen';
 import FeedbackScreen from './components/FeedbackScreen';
+import PeriodPickerModal from './components/PeriodPickerModal';
 import { supabase } from './lib/supabase';
 
 // ============================================================
@@ -148,6 +149,7 @@ export default function App() {
   const [showAdminPanel, setShowAdminPanel] = useState(false);
   const [showReferralScreen, setShowReferralScreen] = useState(false);
   const [showFeedbackScreen, setShowFeedbackScreen] = useState(false);  
+  const [showExportPeriodPicker, setShowExportPeriodPicker] = useState(false);
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
@@ -2029,10 +2031,19 @@ const calculateDistance = (coords) => {
   // ============================================================
   // EXCEL EXPORT
   // ============================================================
-  const generateExcelReport = async () => {
-    try {
-      setIsExporting(true);
-      const allTrips = currentUserTrips;
+  const generateExcelReport = async (period) => {
+   try {
+     setIsExporting(true);
+     const { year = 'ALL', months = 'ALL' } = period || {};
+     let allTrips = currentUserTrips;
+
+     if (year !== 'ALL') {
+       allTrips = allTrips.filter(t => String(t.year) === String(year));
+       if (months !== 'ALL' && Array.isArray(months)) {
+         const monthStrs = months.map(m => String(m).padStart(2, '0'));
+         allTrips = allTrips.filter(t => monthStrs.includes(String(t.month)));
+       }
+     }
 
       if (allTrips.length === 0) {
         Alert.alert('No Data', 'No trips found to export.');
@@ -2225,7 +2236,7 @@ const calculateDistance = (coords) => {
       Alert.alert('Please wait', 'Export is already in progress...');
       return;
     }
-    generateExcelReport();
+    setShowExportPeriodPicker(true);
   };
 
   // ============================================================
@@ -2722,6 +2733,17 @@ const calculateDistance = (coords) => {
     onClose={() => setShowFeedbackScreen(false)}
   />
 )}
+
+      <PeriodPickerModal
+        visible={showExportPeriodPicker}
+        trips={currentUserTrips}
+        title="Export Personal Report"
+        onCancel={() => setShowExportPeriodPicker(false)}
+        onExport={(period) => {
+          setShowExportPeriodPicker(false);
+          generateExcelReport(period);
+        }}
+      />
 
       <Modal visible={showProfileEdit} animationType="slide" transparent onRequestClose={() => setShowProfileEdit(false)}>
         <View style={styles.modalOverlay}>
