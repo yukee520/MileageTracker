@@ -1430,6 +1430,25 @@ export default function App() {
       setLoadingSummary(true);
 
       const endTime = new Date();
+      
+      // Merge any background GPS points before calculating distance.
+      // Handles the case where the user drove with the screen off —
+      // those points live in AsyncStorage, not React state.
+      let routeForDistance = [...route];
+      try {
+        const bgSaved = await AsyncStorage.getItem('@background_route');
+        if (bgSaved) {
+          const bgRoute = JSON.parse(bgSaved);
+          if (bgRoute.length > 0) {
+            console.log('📥 Merging background route points:', bgRoute.length, '(in-memory:', route.length, ')');
+            routeForDistance = [...routeForDistance, ...bgRoute];
+            await AsyncStorage.removeItem('@background_route');
+          }
+        }
+      } catch (e) {
+        console.error('Error merging background route in endTrip:', e);
+      }
+
       const distanceKM = await calculateDistance(routeForDistance);
 
       let fromAddr = 'N/A', toAddr = 'N/A', extractedPlaceName = '';
