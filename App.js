@@ -2032,7 +2032,7 @@ const calculateDistance = (coords) => {
   const generateExcelReport = async () => {
     try {
       setIsExporting(true);
-      const allTrips = trips;
+      const allTrips = currentUserTrips;
 
       if (allTrips.length === 0) {
         Alert.alert('No Data', 'No trips found to export.');
