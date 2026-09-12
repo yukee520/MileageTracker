@@ -39,7 +39,6 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
         route.push({
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
-          accuracy: location.coords.accuracy,
           timestamp: location.timestamp
         });
         if (route.length > 1000) route.shift();
@@ -1712,9 +1711,7 @@ const calculateDistance = (coords) => {
         async (loc) => {
           const newPoint = {
             latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-            accuracy: loc.coords.accuracy,
-            timestamp: loc.timestamp
+            longitude: loc.coords.longitude
           };
 
           setRoute(prev => {

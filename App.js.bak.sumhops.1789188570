@@ -39,7 +39,6 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
         route.push({
           latitude: location.coords.latitude,
           longitude: location.coords.longitude,
-          accuracy: location.coords.accuracy,
           timestamp: location.timestamp
         });
         if (route.length > 1000) route.shift();
@@ -1592,61 +1591,28 @@ export default function App() {
     return { simpleAddress: `${coords.latitude.toFixed(4)}, ${coords.longitude.toFixed(4)}`, placeName: '' };
   };
 
-// ============================================================
-// SUM-OF-HOPS DISTANCE CALCULATION (with filters)
-// ============================================================
-const calculateDistance = (coords) => {
+const calculateDistance = async (coords) => {
   if (!coords || coords.length < 2) return '0.00';
 
-  let totalMeters = 0;
-  let prev = null;
-  let skippedAccuracy = 0;
-  let skippedJitter = 0;
-  let skippedSpike = 0;
-  let hops = 0;
+  // Take the first and last GPS points (same idea as Python: single start → single end)
+  const start = coords[0];
+  const end = coords[coords.length - 1];
 
-  for (const cur of coords) {
-    if (typeof cur.accuracy === 'number' && cur.accuracy > 30) {
-      skippedAccuracy++;
-      continue;
-    }
-
-    if (prev) {
-      const R = 6371e3;
-      const φ1 = prev.latitude * Math.PI / 180;
-      const φ2 = cur.latitude * Math.PI / 180;
-      const Δφ = (cur.latitude - prev.latitude) * Math.PI / 180;
-      const Δλ = (cur.longitude - prev.longitude) * Math.PI / 180;
-      const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                Math.cos(φ1) * Math.cos(φ2) *
-                Math.sin(Δλ/2) * Math.sin(Δλ/2);
-      const hop = R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-
-      if (hop < 3) {
-        skippedJitter++;
-        continue;
-      }
-
-      const t1 = prev.timestamp || 0;
-      const t2 = cur.timestamp || 0;
-      if (t1 && t2) {
-        const dtSec = (t2 - t1) / 1000;
-        if (dtSec > 0 && hop / dtSec > 55) {
-          skippedSpike++;
-          continue;
-        }
-      }
-
-      totalMeters += hop;
-      hops++;
-    }
-
-    prev = cur;
+  // If they're identical, distance is 0
+  if (
+    Math.abs(start.latitude - end.latitude) < 0.0001 &&
+    Math.abs(start.longitude - end.longitude) < 0.0001
+  ) {
+    return '0.00';
   }
 
-  const km = (totalMeters / 1000).toFixed(2);
-  console.log(`📏 Sum-of-hops: ${km} km | hops=${hops}, skipped=${skippedAccuracy + skippedJitter + skippedSpike} (acc=${skippedAccuracy}, jitter=${skippedJitter}, spike=${skippedSpike})`);
-  return km;
+  // Ask OSRM for the actual driving distance
+  const km = await getDrivingDistance(
+    start.latitude, start.longitude,
+    end.latitude, end.longitude
+  );
+
+  return km.toFixed(2);
 };
 
   const handleInitiateNewTrip = () => {
@@ -1712,9 +1678,7 @@ const calculateDistance = (coords) => {
         async (loc) => {
           const newPoint = {
             latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-            accuracy: loc.coords.accuracy,
-            timestamp: loc.timestamp
+            longitude: loc.coords.longitude
           };
 
           setRoute(prev => {
